@@ -14,7 +14,7 @@
 > 
 > 
 > | Home Screen | Selection State | Product Details |
-> | --- | --- | --- |
+> | [---](https://github.com/HammasT1/starbucks_card_animation/blob/main/images/Home%20Screen.png?raw=true) | --- | --- |
 > |  |  |  |
 > 
 > 
