@@ -17,7 +17,7 @@
 > ### 📸 Screenshots Showcase
 > | Home Screen | Selection State | Product Details |
 > | :---: | :---: | :---: |
-> | ![Home Screen](https://raw.githubusercontent.com/HammasT1/starbucks_card_animation/main/images/home.png) | ![Selection State](https://raw.githubusercontent.com/HammasT1/starbucks_card_animation/main/images/selection.png) | ![Product Details](https://raw.githubusercontent.com/HammasT1/starbucks_card_animation/main/images/details.png) |
+> | ![Home Screen](https://github.com/HammasT1/starbucks_card_animation/blob/main/images/Home_Screen.png?raw=true) | ![Selection State](https://raw.githubusercontent.com/HammasT1/starbucks_card_animation/main/images/selection.png) | ![Product Details](https://raw.githubusercontent.com/HammasT1/starbucks_card_animation/main/images/details.png) |
 
 ---
 
