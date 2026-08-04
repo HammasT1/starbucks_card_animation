@@ -9,10 +9,13 @@
 
 ---
 
-## 📱 App Animation & Visual Assets
-
 > ### 🎬 App Animation GIF
-> ![App Animation GIF](https://raw.githubusercontent.com/HammasT1/starbucks_card_animation/main/images/your-animation.gif)
+>
+> <p align="center">
+>   <img src="https://github.com/HammasT1/starbucks_card_animation/blob/main/images/Starbucks-Card-Animation-GIFr.gif?raw=true"
+>        alt="Starbucks Card Animation GIF"
+>        width="350">
+> </p>
 
 > ### 📸 Screenshots Showcase
 > | Home Screen | Selection State | Product Details |
