@@ -425,20 +425,6 @@ final List<DrinkData> _drinks = [
     sizes: ['Tall', 'Grande', 'Venti', 'Trenta'],
   ),
   const DrinkData(
-    name: 'Vanilla Latte',
-    category: 'Hot',
-    description:
-        'Dark espresso balanced with creamy steamed milk and sweet vanilla syrup. Smooth, timeless, perfect.',
-    price: r'$5.15',
-    origin: 'Italy',
-    ingredients: 'Milk, Espresso, Vanilla Syrup',
-    calories: 280,
-    asset: 'images/cupGreen.png',
-    gradient: [Color(0xFF5D4037), Color(0xFF3E2723)],
-    accent: Color(0xFFFFF9C4),
-    sizes: ['Tall', 'Grande', 'Venti'],
-  ),
-  const DrinkData(
     name: 'Pumpkin Spice Latte',
     category: 'Seasonal',
     description:
