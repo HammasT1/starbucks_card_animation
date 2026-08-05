@@ -24,6 +24,13 @@
 
 ---
 
+> ### 🎨 App Icon & Mobile View
+> | App Icon | App Icon Mobile View |
+> | :---: | :---: |
+> | ![App Icon](https://github.com/HammasT1/starbucks_card_animation/blob/main/images/Starbucks-app-icon.png?raw=true) | ![App Icon Mobile View](https://github.com/HammasT1/starbucks_card_animation/blob/main/images/App-Icon-Mobile-view.jpeg?raw=true) |
+
+---
+
 ## 💡 Project Description
 The **Starbucks Card Animation** app is a sleek, highly polished Flutter application designed to showcase advanced UI rendering and physics-inspired transitions. It features interactive beverage cards, dynamic color themes tailored to individual drink variants (such as classic, chocolate, and matcha green tea), and fluid layout switches that elevate the standard mobile user experience.
 
