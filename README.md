@@ -17,6 +17,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/HammasT1/starbucks_card_animation/actions/workflows/build-apk.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/HammasT1/starbucks_card_animation/build-apk.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=APK%20build" alt="APK build" />
+  </a>
+  <a href="https://github.com/HammasT1/starbucks_card_animation/releases/latest">
+    <img src="https://img.shields.io/github/v/release/HammasT1/starbucks_card_animation?style=flat-square&logo=android&logoColor=white&color=3DDC84&label=Download%20APK" alt="Latest release" />
+  </a>
   <img src="https://img.shields.io/github/stars/HammasT1/starbucks_card_animation?style=flat-square&color=CBA258" alt="Stars" />
   <img src="https://img.shields.io/github/forks/HammasT1/starbucks_card_animation?style=flat-square&color=00704A" alt="Forks" />
   <img src="https://img.shields.io/github/last-commit/HammasT1/starbucks_card_animation?style=flat-square&color=1E3932" alt="Last commit" />
@@ -200,6 +206,20 @@ starbucks_card_animation/
 
 ## 🚀 Getting Started
 
+### 📲 Download the APK
+
+Ready-to-install APKs are built automatically by [GitHub Actions](.github/workflows/build-apk.yml):
+
+- **Stable builds:** grab them from the [**latest release**](https://github.com/HammasT1/starbucks_card_animation/releases/latest).
+- **Latest commit:** open the newest [**Build APK** run](https://github.com/HammasT1/starbucks_card_animation/actions/workflows/build-apk.yml) and download the artifact.
+
+| File | Use it for |
+| :--- | :--- |
+| `*-arm64-v8a.apk` | Most modern Android phones (recommended, smallest) |
+| `*-armeabi-v7a.apk` | Older 32-bit phones |
+| `*-x86_64.apk` | Emulators / Chromebooks |
+| `*-universal.apk` | Any device, if you're unsure (larger) |
+
 ### Prerequisites
 
 - [Flutter SDK](https://docs.flutter.dev/get-started/install) with Dart **3.9** or newer
@@ -242,6 +262,7 @@ flutter run
 - [x] Menu with Hero transitions to drink details
 - [x] Cart with quantities and totals
 - [x] Animated dark / light theme
+- [x] Automated APK builds & releases with GitHub Actions
 - [ ] Split `main.dart` into feature folders
 - [ ] Persist cart & theme with local storage
 - [ ] Card flip animation revealing a barcode on the back
