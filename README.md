@@ -178,10 +178,20 @@ flowchart LR
 ```text
 starbucks_card_animation/
 ├── lib/
-│   └── main.dart          # App, screens, models, cart & theme logic
+│   ├── main.dart          # Imports, part list & entry point
+│   └── src/
+│       ├── app.dart       # MaterialApp & themes
+│       ├── screens/       # Cards, Menu, Drink Detail, Cart, Checkout, Order Status
+│       ├── widgets/       # Reusable pieces: nav bar, sheets, rewards ring, tracker…
+│       ├── models/        # Drink, cart item, drink options, orders
+│       ├── data/          # Cards, drinks & pricing
+│       ├── state/         # App, cart, wallet & order state (ValueNotifiers)
+│       ├── theme/         # Colour helpers
+│       └── utils/         # Formatting & haptics
+├── fonts/                 # Poppins (OFL)
 ├── images/                # Cup artwork, logo, screenshots & demo GIF
 ├── test/
-│   └── widget_test.dart
+│   └── widget_test.dart   # Widget tests for every screen & flow
 ├── android/  ios/  web/   # Platform runners
 ├── linux/  macos/  windows/
 └── pubspec.yaml
@@ -263,10 +273,15 @@ flutter run
 - [x] Cart with quantities and totals
 - [x] Animated dark / light theme
 - [x] Automated APK builds & releases with GitHub Actions
-- [ ] Split `main.dart` into feature folders
-- [ ] Persist cart & theme with local storage
-- [ ] Card flip animation revealing a barcode on the back
-- [ ] Golden & widget tests for each screen
+- [x] Card flip revealing a QR pay code, with a pay sheet & countdown
+- [x] Search, favourites, featured banner & fly-to-cart animation
+- [x] Drink customisation (milk, shots, sweetness) with live nutrition
+- [x] 3-step checkout with an animated order tracker
+- [x] Floating nav bar, haptics & a light-theme pass
+- [x] Code split into feature folders
+- [x] Widget tests for each screen & flow
+- [ ] Persist cart, favourites & theme with local storage
+- [ ] Golden (screenshot) tests
 
 ## 🤝 Contributing
 

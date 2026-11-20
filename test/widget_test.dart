@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
@@ -430,5 +431,57 @@ void main() {
     await tester.tap(find.text('Browse menu'));
     await _settle(tester);
     expect(find.text('Our Menu'), findsOneWidget);
+  });
+
+  testWidgets('Floating nav bar switches tabs and slides its pill', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    expect(find.byType(FloatingNavBar), findsOneWidget);
+    double pillLeft() => tester
+        .widget<AnimatedPositioned>(
+          find.descendant(
+            of: find.byType(FloatingNavBar),
+            matching: find.byType(AnimatedPositioned),
+          ),
+        )
+        .left!;
+
+    final start = pillLeft();
+    await tester.tap(find.text('Cart'));
+    await _settle(tester);
+    expect(pillLeft(), greaterThan(start));
+    expect(find.text('Your Cart'), findsOneWidget);
+  });
+
+  testWidgets('Interactions trigger haptic feedback', (tester) async {
+    final haptics = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          haptics.add(call.arguments as String);
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+
+    await _pumpApp(tester);
+    await tester.tap(find.text('Menu'));
+    await _settle(tester);
+    expect(haptics, contains('HapticFeedbackType.selectionClick'));
+
+    haptics.clear();
+    await tester.tap(find.byType(HeartButton).first);
+    await _settle(tester);
+    expect(haptics, contains('HapticFeedbackType.lightImpact'));
+    await tester.tap(find.byType(HeartButton).first); // reset favourite
+    await _settle(tester);
   });
 }
