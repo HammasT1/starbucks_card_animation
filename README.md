@@ -43,7 +43,7 @@
 
 ## 📖 Overview
 
-**Starbucks Card Animation** is a Flutter showcase app that reimagines a coffee rewards experience with motion at its core. Swipe through a deck of **3D-tilting gift cards** whose colours bleed into the background, browse a menu of **9 handcrafted drinks**, open a detail page with a **Hero transition**, and build an order in a **live-updating cart**, all with a smooth animated **dark / light theme** switch.
+**Starbucks Card Animation** is a Flutter showcase app that reimagines a coffee rewards experience with motion at its core. Swipe through a deck of **3D-tilting gift cards** whose colours bleed into the background, browse a menu of **8 handcrafted drinks**, open a detail page with a **Hero transition**, and build an order in a **live-updating cart**, all with a smooth animated **dark / light theme** switch.
 
 Every effect is written with Flutter's built-in animation APIs (`AnimationController`, `Tween`, `Hero`, `Matrix4`, implicit animations). The app uses **no third-party animation packages.**
 
@@ -95,7 +95,7 @@ Every effect is written with Flutter's built-in animation APIs (`AnimationContro
     <td width="50%" valign="top">
       <h3>☕ Menu</h3>
       <ul>
-        <li><b>9 drinks</b> across <i>Hot</i>, <i>Cold</i> & <i>Seasonal</i> categories</li>
+        <li><b>8 drinks</b> across <i>Hot</i>, <i>Cold</i> & <i>Seasonal</i> categories</li>
         <li>Staggered entrance animations for the drink grid</li>
         <li>Unique gradient & accent colour for every drink</li>
         <li><code>Hero</code> cup images that fly into the detail page</li>

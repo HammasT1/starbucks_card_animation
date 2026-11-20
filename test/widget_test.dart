@@ -181,4 +181,87 @@ void main() {
     Navigator.of(tester.element(find.text('Scan to Pay'))).pop();
     await _settle(tester);
   });
+
+  Future<void> openMenu(WidgetTester tester) async {
+    await _pumpApp(tester);
+    await tester.tap(find.text('Menu'));
+    await _settle(tester);
+  }
+
+  testWidgets('Search filters drinks by name and ingredient', (tester) async {
+    await openMenu(tester);
+    expect(find.text('8 drinks'), findsOneWidget);
+    expect(find.byType(FeaturedBanner), findsOneWidget);
+
+    // "Caramel" matches Caramel Macchiato (name) and Ember Spice Chai
+    // (ingredient).
+    await tester.enterText(find.byType(TextField), 'caramel');
+    await _settle(tester);
+    expect(find.text('2 drinks'), findsOneWidget);
+    expect(find.byType(FeaturedBanner), findsNothing);
+
+    await tester.enterText(find.byType(TextField), 'zzz');
+    await _settle(tester);
+    expect(find.text('No drinks found'), findsOneWidget);
+
+    await tester.tap(find.text('Clear search'));
+    await _settle(tester);
+    expect(find.text('8 drinks'), findsOneWidget);
+  });
+
+  testWidgets('Categories filter the grid', (tester) async {
+    await openMenu(tester);
+    await tester.tap(find.byKey(const ValueKey('category-Seasonal')));
+    await _settle(tester);
+    expect(find.text('2 drinks'), findsOneWidget);
+    expect(find.byType(FeaturedBanner), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('category-All')));
+    await _settle(tester);
+    expect(find.text('8 drinks'), findsOneWidget);
+  });
+
+  testWidgets('Hearts add drinks to the Favourites filter', (tester) async {
+    await openMenu(tester);
+
+    await tester.tap(find.byKey(const ValueKey('category-Favourites')));
+    await _settle(tester);
+    expect(find.text('No favourites yet'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('category-All')));
+    await _settle(tester);
+    await tester.tap(find.byType(HeartButton).first);
+    await _settle(tester);
+
+    await tester.tap(find.byKey(const ValueKey('category-Favourites')));
+    await _settle(tester);
+    expect(find.text('1 drink'), findsOneWidget);
+    expect(find.byIcon(Icons.favorite_rounded), findsWidgets);
+
+    // Un-favourite again so other tests start from a clean state.
+    await tester.tap(find.byType(HeartButton).first);
+    await _settle(tester);
+    expect(find.text('No favourites yet'), findsOneWidget);
+  });
+
+  testWidgets('Quick add flies a cup to the cart and bumps the badge', (
+    tester,
+  ) async {
+    await openMenu(tester);
+    expect(
+      find.descendant(of: find.byType(CartTabIcon), matching: find.text('1')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byIcon(Icons.add_shopping_cart_rounded).first);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byType(FlyingCup), findsOneWidget);
+
+    await _settle(tester);
+    expect(find.byType(FlyingCup), findsNothing);
+    expect(
+      find.descendant(of: find.byType(CartTabIcon), matching: find.text('1')),
+      findsOneWidget,
+    );
+  });
 }

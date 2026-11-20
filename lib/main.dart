@@ -10,6 +10,19 @@ void main() => runApp(const MyApp());
 
 final ValueNotifier<bool> _isDark = ValueNotifier<bool>(true);
 final ValueNotifier<List<CartItem>> _cart = ValueNotifier<List<CartItem>>([]);
+final ValueNotifier<Set<String>> _favourites = ValueNotifier<Set<String>>({});
+
+/// Incremented whenever something lands in the cart, to bounce the tab badge.
+final ValueNotifier<int> _cartBump = ValueNotifier<int>(0);
+
+/// Marks the Cart tab icon so the fly-to-cart animation knows where to land.
+final GlobalKey _cartTabKey = GlobalKey();
+
+void _toggleFavourite(String name) {
+  final next = Set<String>.from(_favourites.value);
+  if (!next.remove(name)) next.add(name);
+  _favourites.value = next;
+}
 
 double _parsePrice(String price) {
   final normalized = price.replaceAll(r'\\$', '').replaceAll(r'$', '');
@@ -32,6 +45,7 @@ void _addToCart(DrinkData drink, {required String size, int quantity = 1}) {
   }
 
   _cart.value = items;
+  _cartBump.value++;
 }
 
 void _updateCartQuantity(String id, int quantity) {
@@ -791,35 +805,7 @@ class _MainShellState extends State<MainShell> {
                   label: 'Menu',
                 ),
                 BottomNavigationBarItem(
-                  icon: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      const Icon(Icons.shopping_bag_rounded),
-                      if (cartCount > 0)
-                        Positioned(
-                          right: -8,
-                          top: -6,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 5,
-                              vertical: 1,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFB300),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '$cartCount',
-                              style: const TextStyle(
-                                color: Colors.black,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+                  icon: CartTabIcon(key: _cartTabKey, count: cartCount),
                   label: 'Cart',
                 ),
               ],
@@ -1999,83 +1985,89 @@ class MenuScreen extends StatefulWidget {
   State<MenuScreen> createState() => _MenuScreenState();
 }
 
-class _MenuScreenState extends State<MenuScreen>
-    with SingleTickerProviderStateMixin {
+class _MenuScreenState extends State<MenuScreen> {
+  static const _categories = ['All', 'Hot', 'Cold', 'Seasonal', 'Favourites'];
   String _selectedCat = 'All';
-  static const _categories = ['All', 'Hot', 'Cold', 'Seasonal'];
-  late final AnimationController _animCtrl;
-
-  void _quickAddToCart(BuildContext context, DrinkData drink) {
-    final size = drink.sizes.contains('Grande') ? 'Grande' : drink.sizes.first;
-    _addToCart(drink, size: size);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${drink.name} added to cart'),
-        duration: const Duration(milliseconds: 1200),
-      ),
-    );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _animCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    )..forward();
-  }
+  String _query = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
 
   @override
   void dispose() {
-    _animCtrl.dispose();
+    _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
-  List<DrinkData> get _filtered => _selectedCat == 'All'
-      ? _drinks
-      : _drinks.where((d) => d.category == _selectedCat).toList();
+  List<DrinkData> get _filtered {
+    final q = _query.trim().toLowerCase();
+    return _drinks.where((d) {
+      final inCategory = switch (_selectedCat) {
+        'All' => true,
+        'Favourites' => _favourites.value.contains(d.name),
+        _ => d.category == _selectedCat,
+      };
+      if (!inCategory) return false;
+      if (q.isEmpty) return true;
+      return d.name.toLowerCase().contains(q) ||
+          d.ingredients.toLowerCase().contains(q) ||
+          d.category.toLowerCase().contains(q);
+    }).toList();
+  }
+
+  bool get _showBanner => _selectedCat == 'All' && _query.trim().isEmpty;
+
+  void _clearSearch() {
+    _searchCtrl.clear();
+    setState(() => _query = '');
+  }
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: _isDark,
-      builder: (_, dark, __) => Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: dark
-                ? const [
-                    Color(0xFF1E3932),
-                    Color(0xFF0D2113),
-                    Color(0xFF000000),
-                  ]
-                : const [
-                    Color(0xFFE8F5E9),
-                    Color(0xFFF1F8F1),
-                    Color(0xFFFFFFFF),
-                  ],
-            stops: const [0.0, 0.5, 1.0],
+    return AnimatedBuilder(
+      animation: Listenable.merge([_isDark, _favourites]),
+      builder: (_, __) {
+        final dark = _isDark.value;
+        final drinks = _filtered;
+        return Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: dark
+                  ? const [
+                      Color(0xFF1E3932),
+                      Color(0xFF0D2113),
+                      Color(0xFF000000),
+                    ]
+                  : const [
+                      Color(0xFFE8F5E9),
+                      Color(0xFFF1F8F1),
+                      Color(0xFFFFFFFF),
+                    ],
+              stops: const [0.0, 0.5, 1.0],
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildMenuHeader(),
-              const SizedBox(height: 12),
-              _buildCategories(),
-              const SizedBox(height: 14),
-              Expanded(child: _buildDrinkGrid()),
-            ],
+          child: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildMenuHeader(dark, drinks.length),
+                const SizedBox(height: 14),
+                _buildSearch(dark),
+                const SizedBox(height: 12),
+                _buildCategories(dark),
+                const SizedBox(height: 14),
+                Expanded(child: _buildDrinkGrid(dark, drinks)),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildMenuHeader() {
-    final dark = _isDark.value;
+  Widget _buildMenuHeader(bool dark, int count) {
     final onBg = dark ? Colors.white : const Color(0xFF1B1B1B);
     final onBgSub = dark
         ? Colors.white.withAlpha(140)
@@ -2127,12 +2119,26 @@ class _MenuScreenState extends State<MenuScreen>
               color: const Color(0xFF00704A).withAlpha(60),
               border: Border.all(color: const Color(0xFF00704A).withAlpha(120)),
             ),
-            child: Text(
-              '${_drinks.length} drinks',
-              style: TextStyle(
-                color: dark ? Colors.white70 : const Color(0xFF00704A),
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.5),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: child,
+                ),
+              ),
+              child: Text(
+                '$count drink${count == 1 ? '' : 's'}',
+                key: ValueKey(count),
+                style: TextStyle(
+                  color: dark ? Colors.white70 : const Color(0xFF00704A),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -2141,66 +2147,78 @@ class _MenuScreenState extends State<MenuScreen>
     );
   }
 
-  Widget _buildCategories() {
-    final dark = _isDark.value;
-    return SizedBox(
-      height: 38,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        itemCount: _categories.length,
-        itemBuilder: (_, i) {
-          final cat = _categories[i];
-          final active = cat == _selectedCat;
-          return GestureDetector(
-            onTap: () {
-              setState(() => _selectedCat = cat);
-              _animCtrl.forward(from: 0);
-            },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 250),
-              margin: const EdgeInsets.only(right: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                gradient: active
-                    ? const LinearGradient(
-                        colors: [Color(0xFF00704A), Color(0xFF1E3932)],
-                      )
-                    : null,
-                color: active
-                    ? null
+  Widget _buildSearch(bool dark) {
+    final onBg = dark ? Colors.white : const Color(0xFF1B1B1B);
+    final sub = dark ? Colors.white54 : Colors.black45;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: AnimatedBuilder(
+        animation: _searchFocus,
+        builder: (_, __) {
+          final focused = _searchFocus.hasFocus;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              color: dark ? Colors.white.withAlpha(16) : Colors.white,
+              border: Border.all(
+                color: focused
+                    ? const Color(0xFF00A862)
                     : dark
-                    ? Colors.white.withAlpha(15)
-                    : Colors.black.withAlpha(8),
-                border: Border.all(
-                  color: active
-                      ? const Color(0xFF00704A)
-                      : dark
-                      ? Colors.white.withAlpha(40)
-                      : Colors.black.withAlpha(20),
+                    ? Colors.white.withAlpha(35)
+                    : Colors.black.withAlpha(18),
+                width: focused ? 1.6 : 1,
+              ),
+              boxShadow: focused
+                  ? [
+                      BoxShadow(
+                        color: const Color(0xFF00A862).withAlpha(60),
+                        blurRadius: 14,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.search_rounded,
+                  size: 20,
+                  color: focused ? const Color(0xFF00A862) : sub,
                 ),
-                boxShadow: active
-                    ? [
-                        BoxShadow(
-                          color: const Color(0xFF00704A).withAlpha(80),
-                          blurRadius: 10,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _searchCtrl,
+                    focusNode: _searchFocus,
+                    onChanged: (v) => setState(() => _query = v),
+                    textInputAction: TextInputAction.search,
+                    cursorColor: const Color(0xFF00A862),
+                    style: TextStyle(color: onBg, fontSize: 14),
+                    decoration: InputDecoration.collapsed(
+                      hintText: 'Search drinks or ingredients',
+                      hintStyle: TextStyle(color: sub, fontSize: 14),
+                    ),
+                  ),
+                ),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  transitionBuilder: (child, anim) =>
+                      ScaleTransition(scale: anim, child: child),
+                  child: _query.isEmpty
+                      ? const SizedBox.shrink()
+                      : GestureDetector(
+                          onTap: _clearSearch,
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 20,
+                            color: sub,
+                            semanticLabel: 'Clear search',
+                          ),
                         ),
-                      ]
-                    : null,
-              ),
-              child: Text(
-                cat,
-                style: TextStyle(
-                  color: active
-                      ? Colors.white
-                      : dark
-                      ? Colors.white60
-                      : Colors.black54,
-                  fontSize: 13,
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w400,
                 ),
-              ),
+              ],
             ),
           );
         },
@@ -2208,26 +2226,230 @@ class _MenuScreenState extends State<MenuScreen>
     );
   }
 
-  Widget _buildDrinkGrid() {
-    final drinks = _filtered;
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 300),
-      child: GridView.builder(
-        key: ValueKey(_selectedCat),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          mainAxisSpacing: 14,
-          crossAxisSpacing: 14,
-          childAspectRatio: 0.72,
+  Widget _buildCategories(bool dark) {
+    final index = _categories.indexOf(_selectedCat);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        height: 46,
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(23),
+          color: dark ? Colors.white.withAlpha(14) : Colors.black.withAlpha(7),
+          border: Border.all(
+            color: dark
+                ? Colors.white.withAlpha(30)
+                : Colors.black.withAlpha(14),
+          ),
         ),
-        itemCount: drinks.length,
-        itemBuilder: (ctx, i) => _buildDrinkCard(ctx, drinks[i], i),
+        child: LayoutBuilder(
+          builder: (_, box) {
+            final w = box.maxWidth / _categories.length;
+            return Stack(
+              children: [
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 380),
+                  curve: Curves.easeOutBack,
+                  left: index * w,
+                  top: 0,
+                  bottom: 0,
+                  width: w,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(19),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF00A862), Color(0xFF00704A)],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF00704A).withAlpha(90),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    for (final cat in _categories)
+                      Expanded(
+                        child: GestureDetector(
+                          key: ValueKey('category-$cat'),
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => setState(() => _selectedCat = cat),
+                          child: Center(
+                            child: _categoryLabel(
+                              cat,
+                              cat == _selectedCat,
+                              dark,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
 
-  Widget _buildDrinkCard(BuildContext ctx, DrinkData d, int i) =>
+  Widget _categoryLabel(String cat, bool active, bool dark) {
+    final color = active
+        ? Colors.white
+        : dark
+        ? Colors.white60
+        : Colors.black54;
+    if (cat == 'Favourites') {
+      return AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        child: Icon(
+          active ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+          key: ValueKey(active),
+          size: 18,
+          color: active ? Colors.white : const Color(0xFFFF5A79),
+          semanticLabel: 'Favourites',
+        ),
+      );
+    }
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: AnimatedDefaultTextStyle(
+        duration: const Duration(milliseconds: 220),
+        style: TextStyle(
+          fontFamily: 'Poppins',
+          color: color,
+          fontSize: 12.5,
+          fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+        ),
+        child: Text(cat, maxLines: 1),
+      ),
+    );
+  }
+
+  Widget _buildDrinkGrid(bool dark, List<DrinkData> drinks) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 350),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.05, 0),
+            end: Offset.zero,
+          ).animate(anim),
+          child: child,
+        ),
+      ),
+      child: CustomScrollView(
+        key: ValueKey(_selectedCat),
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        slivers: [
+          SliverToBoxAdapter(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic,
+              child: _showBanner
+                  ? const Padding(
+                      padding: EdgeInsets.fromLTRB(16, 0, 16, 18),
+                      child: FeaturedBanner(),
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
+          ),
+          if (drinks.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _emptyResults(dark),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
+              sliver: SliverGrid(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 14,
+                  crossAxisSpacing: 14,
+                  childAspectRatio: 0.72,
+                ),
+                delegate: SliverChildBuilderDelegate(
+                  (ctx, i) => KeyedSubtree(
+                    key: ValueKey(drinks[i].name),
+                    child: _buildDrinkCard(ctx, drinks[i], i, dark),
+                  ),
+                  childCount: drinks.length,
+                  findChildIndexCallback: (key) {
+                    final name = (key as ValueKey<String>).value;
+                    final i = drinks.indexWhere((d) => d.name == name);
+                    return i < 0 ? null : i;
+                  },
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyResults(bool dark) {
+    final favourites = _selectedCat == 'Favourites' && _query.trim().isEmpty;
+    final onBg = dark ? Colors.white : const Color(0xFF1B1B1B);
+    final sub = dark ? Colors.white60 : Colors.black54;
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutBack,
+      builder: (_, v, child) => Opacity(
+        opacity: v.clamp(0, 1),
+        child: Transform.scale(scale: 0.85 + 0.15 * v, child: child),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 30),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              favourites
+                  ? Icons.favorite_border_rounded
+                  : Icons.search_off_rounded,
+              size: 56,
+              color: favourites ? const Color(0xFFFF5A79) : sub,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              favourites ? 'No favourites yet' : 'No drinks found',
+              style: TextStyle(
+                color: onBg,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              favourites
+                  ? 'Tap the heart on any drink to save it here.'
+                  : 'Try another name or ingredient.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: sub, fontSize: 13),
+            ),
+            if (_query.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              TextButton(
+                onPressed: _clearSearch,
+                child: const Text('Clear search'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrinkCard(BuildContext ctx, DrinkData d, int i, bool dark) =>
       TweenAnimationBuilder<double>(
         tween: Tween(begin: 0, end: 1),
         duration: Duration(milliseconds: 400 + i * 80),
@@ -2239,193 +2461,203 @@ class _MenuScreenState extends State<MenuScreen>
             child: Opacity(opacity: v, child: child),
           ),
         ),
-        child: GestureDetector(
-          onTap: () => Navigator.of(ctx).push(
-            PageRouteBuilder(
-              pageBuilder: (_, anim, __) => FadeTransition(
-                opacity: anim,
-                child: DrinkDetailScreen(drink: d),
-              ),
-              transitionDuration: const Duration(milliseconds: 350),
-            ),
-          ),
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(22),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: d.gradient,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: d.gradient[0].withAlpha(120),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
+        child: Builder(
+          builder: (cardCtx) => GestureDetector(
+            onTap: () => Navigator.of(ctx).push(
+              PageRouteBuilder(
+                pageBuilder: (_, anim, __) => FadeTransition(
+                  opacity: anim,
+                  child: DrinkDetailScreen(drink: d),
                 ),
-              ],
+                transitionDuration: const Duration(milliseconds: 350),
+              ),
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(22),
-              child: Stack(
-                children: [
-                  Positioned(
-                    right: -20,
-                    top: -20,
-                    child: Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withAlpha(10),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: d.gradient,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: d.gradient[0].withAlpha(120),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(22),
+                child: Stack(
+                  children: [
+                    Positioned(
+                      right: -20,
+                      top: -20,
+                      child: Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withAlpha(10),
+                        ),
                       ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(10),
-                            color: d.accent.withAlpha(40),
-                            border: Border.all(color: d.accent.withAlpha(100)),
-                          ),
-                          child: Text(
-                            d.category,
-                            style: TextStyle(
-                              color: d.accent,
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Expanded(
-                          child: Center(
-                            child: TweenAnimationBuilder<double>(
-                              tween: Tween(begin: -0.08, end: 0.08),
-                              duration: Duration(milliseconds: 1800 + i * 90),
-                              curve: Curves.easeInOut,
-                              builder: (_, angle, __) => Stack(
-                                clipBehavior: Clip.none,
-                                alignment: Alignment.center,
-                                children: [
-                                  Container(
-                                    width: 104,
-                                    height: 104,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      gradient: RadialGradient(
-                                        colors: [
-                                          d.accent.withAlpha(55),
-                                          Colors.transparent,
-                                        ],
-                                      ),
-                                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(10),
+                                  color: d.accent.withAlpha(40),
+                                  border: Border.all(
+                                    color: d.accent.withAlpha(100),
                                   ),
-                                  Transform.rotate(
-                                    angle: angle,
-                                    child: Hero(
-                                      tag: 'drink-${d.name}',
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: d.accent.withAlpha(80),
-                                              blurRadius: 20,
-                                              spreadRadius: 4,
-                                            ),
+                                ),
+                                child: Text(
+                                  d.category,
+                                  style: TextStyle(
+                                    color: d.accent,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              const Spacer(),
+                              HeartButton(drink: d, size: 20),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Expanded(
+                            child: Center(
+                              child: TweenAnimationBuilder<double>(
+                                tween: Tween(begin: -0.08, end: 0.08),
+                                duration: Duration(milliseconds: 1800 + i * 90),
+                                curve: Curves.easeInOut,
+                                builder: (_, angle, __) => Stack(
+                                  clipBehavior: Clip.none,
+                                  alignment: Alignment.center,
+                                  children: [
+                                    Container(
+                                      width: 104,
+                                      height: 104,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        gradient: RadialGradient(
+                                          colors: [
+                                            d.accent.withAlpha(55),
+                                            Colors.transparent,
                                           ],
                                         ),
-                                        child: Image.asset(
-                                          d.asset,
-                                          height: 86,
-                                          fit: BoxFit.contain,
-                                          errorBuilder: (_, __, ___) => Icon(
-                                            Icons.local_cafe,
-                                            color: d.accent,
-                                            size: 56,
+                                      ),
+                                    ),
+                                    Transform.rotate(
+                                      angle: angle,
+                                      child: Hero(
+                                        tag: 'drink-${d.name}',
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: d.accent.withAlpha(80),
+                                                blurRadius: 20,
+                                                spreadRadius: 4,
+                                              ),
+                                            ],
+                                          ),
+                                          child: Image.asset(
+                                            d.asset,
+                                            height: 86,
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (_, __, ___) => Icon(
+                                              Icons.local_cafe,
+                                              color: d.accent,
+                                              size: 56,
+                                            ),
                                           ),
                                         ),
                                       ),
                                     ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            d.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              // Cards are dark in both themes.
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              height: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                d.price,
+                                style: TextStyle(
+                                  color: d.accent,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              Row(
+                                children: [
+                                  GestureDetector(
+                                    onTap: () => _flyToCart(cardCtx, d),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(5),
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: d.accent.withAlpha(40),
+                                      ),
+                                      child: Icon(
+                                        Icons.add_shopping_cart_rounded,
+                                        color: d.accent,
+                                        size: 14,
+                                        semanticLabel: 'Quick add ${d.name}',
+                                      ),
+                                    ),
                                   ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          d.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: _isDark.value
-                                ? Colors.white
-                                : const Color(0xFF132018),
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            height: 1.2,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              d.price,
-                              style: TextStyle(
-                                color: d.accent,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            Row(
-                              children: [
-                                GestureDetector(
-                                  onTap: () => _quickAddToCart(ctx, d),
-                                  child: Container(
+                                  const SizedBox(width: 8),
+                                  Container(
                                     padding: const EdgeInsets.all(5),
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
                                       color: d.accent.withAlpha(40),
                                     ),
                                     child: Icon(
-                                      Icons.add_shopping_cart_rounded,
+                                      Icons.arrow_forward_rounded,
                                       color: d.accent,
                                       size: 14,
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.all(5),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: d.accent.withAlpha(40),
-                                  ),
-                                  child: Icon(
-                                    Icons.arrow_forward_rounded,
-                                    color: d.accent,
-                                    size: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -2847,6 +3079,8 @@ class _DrinkDetailScreenState extends State<DrinkDetailScreen>
                       onPressed: () => Navigator.of(context).pop(),
                     ),
                     const Spacer(),
+                    HeartButton(drink: d, size: 24, idleColor: Colors.white70),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 12,
@@ -3597,93 +3831,122 @@ class PickedForYou extends StatelessWidget {
   const PickedForYou({super.key, required this.dark});
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 150,
-    child: ListView.separated(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      itemCount: _drinks.length,
-      separatorBuilder: (_, __) => const SizedBox(width: 12),
-      itemBuilder: (ctx, i) {
-        final d = _drinks[i];
-        final heroTag = 'pick-${d.name}';
-        return TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: 0, end: 1),
-          duration: Duration(milliseconds: 400 + i * 90),
-          curve: Curves.easeOutBack,
-          builder: (_, v, child) =>
-              Transform.scale(scale: 0.8 + 0.2 * v, child: child),
-          child: GestureDetector(
-            onTap: () => Navigator.of(ctx).push(
-              PageRouteBuilder(
-                pageBuilder: (_, anim, __) => FadeTransition(
-                  opacity: anim,
-                  child: DrinkDetailScreen(drink: d, heroTag: heroTag),
-                ),
-                transitionDuration: const Duration(milliseconds: 350),
-              ),
-            ),
-            child: Container(
-              width: 112,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: d.gradient,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: d.gradient[0].withAlpha(dark ? 110 : 70),
-                    blurRadius: 12,
-                    offset: const Offset(0, 6),
+  Widget build(BuildContext context) => ValueListenableBuilder<Set<String>>(
+    valueListenable: _favourites,
+    builder: (_, favs, __) => _buildList(favs),
+  );
+
+  Widget _buildList(Set<String> favs) {
+    final drinks = [
+      ..._drinks.where((d) => favs.contains(d.name)),
+      ..._drinks.where((d) => !favs.contains(d.name)),
+    ];
+    return SizedBox(
+      height: 150,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        itemCount: drinks.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (ctx, i) {
+          final d = drinks[i];
+          final fav = favs.contains(d.name);
+          final heroTag = 'pick-${d.name}';
+          return TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: 1),
+            duration: Duration(milliseconds: 400 + i * 90),
+            curve: Curves.easeOutBack,
+            builder: (_, v, child) =>
+                Transform.scale(scale: 0.8 + 0.2 * v, child: child),
+            child: GestureDetector(
+              onTap: () => Navigator.of(ctx).push(
+                PageRouteBuilder(
+                  pageBuilder: (_, anim, __) => FadeTransition(
+                    opacity: anim,
+                    child: DrinkDetailScreen(drink: d, heroTag: heroTag),
                   ),
-                ],
+                  transitionDuration: const Duration(milliseconds: 350),
+                ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Center(
-                      child: Hero(
-                        tag: heroTag,
-                        child: Image.asset(
-                          d.asset,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) =>
-                              Icon(Icons.local_cafe, color: d.accent),
-                        ),
+              child: Container(
+                width: 112,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: d.gradient,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: d.gradient[0].withAlpha(dark ? 110 : 70),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned.fill(
+                            child: Center(
+                              child: Hero(
+                                tag: heroTag,
+                                child: Image.asset(
+                                  d.asset,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) =>
+                                      Icon(Icons.local_cafe, color: d.accent),
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (fav)
+                            const Positioned(
+                              top: -2,
+                              right: -2,
+                              child: Icon(
+                                Icons.favorite_rounded,
+                                size: 16,
+                                color: Color(0xFFFF5A79),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    d.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
+                    const SizedBox(height: 6),
+                    Text(
+                      d.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  Text(
-                    d.price,
-                    style: TextStyle(
-                      color: d.accent,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
+                    Text(
+                      d.price,
+                      style: TextStyle(
+                        color: d.accent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        );
-      },
-    ),
-  );
+          );
+        },
+      ),
+    );
+  }
 }
 
 // ─── Card Back (QR) ───────────────────────────────────────────────────────────
@@ -3974,6 +4237,565 @@ class _PaySheetBodyState extends State<PaySheetBody> {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ─── Heart Button ─────────────────────────────────────────────────────────────
+
+class HeartButton extends StatefulWidget {
+  final DrinkData drink;
+  final double size;
+  final Color? idleColor;
+
+  const HeartButton({
+    super.key,
+    required this.drink,
+    this.size = 20,
+    this.idleColor,
+  });
+
+  @override
+  State<HeartButton> createState() => _HeartButtonState();
+}
+
+class _HeartButtonState extends State<HeartButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 450),
+  );
+  late final Animation<double> _scale = TweenSequence<double>([
+    TweenSequenceItem(
+      tween: Tween(
+        begin: 1.0,
+        end: 1.5,
+      ).chain(CurveTween(curve: Curves.easeOut)),
+      weight: 35,
+    ),
+    TweenSequenceItem(
+      tween: Tween(
+        begin: 1.5,
+        end: 0.88,
+      ).chain(CurveTween(curve: Curves.easeIn)),
+      weight: 30,
+    ),
+    TweenSequenceItem(
+      tween: Tween(
+        begin: 0.88,
+        end: 1.0,
+      ).chain(CurveTween(curve: Curves.easeOut)),
+      weight: 35,
+    ),
+  ]).animate(_ctrl);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<Set<String>>(
+    valueListenable: _favourites,
+    builder: (_, favs, __) {
+      final fav = favs.contains(widget.drink.name);
+      return Semantics(
+        button: true,
+        label: fav ? 'Remove from favourites' : 'Add to favourites',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            _toggleFavourite(widget.drink.name);
+            _ctrl.forward(from: 0);
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: ScaleTransition(
+              scale: _scale,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                transitionBuilder: (child, anim) =>
+                    ScaleTransition(scale: anim, child: child),
+                child: Icon(
+                  fav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                  key: ValueKey(fav),
+                  size: widget.size,
+                  color: fav
+                      ? const Color(0xFFFF5A79)
+                      : widget.idleColor ?? Colors.white.withAlpha(200),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+// ─── Cart Tab Icon ────────────────────────────────────────────────────────────
+
+class CartTabIcon extends StatefulWidget {
+  final int count;
+
+  const CartTabIcon({super.key, required this.count});
+
+  @override
+  State<CartTabIcon> createState() => _CartTabIconState();
+}
+
+class _CartTabIconState extends State<CartTabIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 550),
+  );
+  late final Animation<double> _scale = TweenSequence<double>([
+    TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.35), weight: 30),
+    TweenSequenceItem(
+      tween: Tween(
+        begin: 1.35,
+        end: 1.0,
+      ).chain(CurveTween(curve: Curves.elasticOut)),
+      weight: 70,
+    ),
+  ]).animate(_ctrl);
+
+  @override
+  void initState() {
+    super.initState();
+    _cartBump.addListener(_bump);
+  }
+
+  void _bump() => _ctrl.forward(from: 0);
+
+  @override
+  void dispose() {
+    _cartBump.removeListener(_bump);
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ScaleTransition(
+    scale: _scale,
+    child: Stack(
+      clipBehavior: Clip.none,
+      children: [
+        const Icon(Icons.shopping_bag_rounded),
+        if (widget.count > 0)
+          Positioned(
+            right: -8,
+            top: -6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFB300),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                transitionBuilder: (child, anim) => SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0, 0.8),
+                    end: Offset.zero,
+                  ).animate(anim),
+                  child: FadeTransition(opacity: anim, child: child),
+                ),
+                child: Text(
+                  '${widget.count}',
+                  key: ValueKey(widget.count),
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+// ─── Fly To Cart ──────────────────────────────────────────────────────────────
+
+/// Flies the drink's cup from its menu card to the Cart tab, then adds it.
+void _flyToCart(BuildContext cardContext, DrinkData drink) {
+  final size = drink.sizes.contains('Grande') ? 'Grande' : drink.sizes.first;
+  final overlay = Overlay.of(cardContext, rootOverlay: true);
+  final overlayBox = overlay.context.findRenderObject() as RenderBox?;
+  final cardBox = cardContext.findRenderObject() as RenderBox?;
+  if (overlayBox == null || cardBox == null || !cardBox.attached) {
+    _addToCart(drink, size: size);
+    return;
+  }
+
+  final cardOrigin = cardBox.localToGlobal(Offset.zero, ancestor: overlayBox);
+  final start =
+      cardOrigin + Offset(cardBox.size.width / 2, cardBox.size.height * 0.42);
+
+  final cartBox = _cartTabKey.currentContext?.findRenderObject() as RenderBox?;
+  final end = cartBox != null && cartBox.attached
+      ? cartBox.localToGlobal(
+          cartBox.size.center(Offset.zero),
+          ancestor: overlayBox,
+        )
+      : Offset(overlayBox.size.width * 5 / 6, overlayBox.size.height - 40);
+
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (_) => FlyingCup(
+      start: start,
+      end: end,
+      drink: drink,
+      onDone: () {
+        entry.remove();
+        _addToCart(drink, size: size);
+      },
+    ),
+  );
+  overlay.insert(entry);
+}
+
+class FlyingCup extends StatefulWidget {
+  final Offset start, end;
+  final DrinkData drink;
+  final VoidCallback onDone;
+
+  const FlyingCup({
+    super.key,
+    required this.start,
+    required this.end,
+    required this.drink,
+    required this.onDone,
+  });
+
+  @override
+  State<FlyingCup> createState() => _FlyingCupState();
+}
+
+class _FlyingCupState extends State<FlyingCup>
+    with SingleTickerProviderStateMixin {
+  static const double _size = 84;
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 750),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl.forward().whenComplete(() {
+      if (mounted) widget.onDone();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final a = widget.start;
+    final b = widget.end;
+    // Control point above both ends gives the flight a nice arc.
+    final c = Offset((a.dx + b.dx) / 2, min(a.dy, b.dy) - 140);
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, __) {
+          final t = Curves.easeInOutCubic.transform(_ctrl.value);
+          final u = 1 - t;
+          final p = a * (u * u) + c * (2 * u * t) + b * (t * t);
+          final scale = 1.0 - 0.75 * t;
+          final opacity = t < 0.85 ? 1.0 : (1 - (t - 0.85) / 0.15);
+          return Stack(
+            children: [
+              Positioned(
+                left: p.dx - _size / 2,
+                top: p.dy - _size / 2,
+                width: _size,
+                height: _size,
+                child: Opacity(
+                  opacity: opacity.clamp(0.0, 1.0),
+                  child: Transform.rotate(
+                    angle: t * 0.8,
+                    child: Transform.scale(
+                      scale: scale,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: widget.drink.accent.withAlpha(140),
+                              blurRadius: 24,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: Image.asset(
+                          widget.drink.asset,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => Icon(
+                            Icons.local_cafe,
+                            color: widget.drink.accent,
+                            size: 40,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ─── Featured Banner ──────────────────────────────────────────────────────────
+
+const _featuredNames = [
+  'Pumpkin Spice Latte',
+  'Ember Spice Chai',
+  'Blue Sky Refresher',
+];
+
+class FeaturedBanner extends StatefulWidget {
+  const FeaturedBanner({super.key});
+
+  @override
+  State<FeaturedBanner> createState() => _FeaturedBannerState();
+}
+
+class _FeaturedBannerState extends State<FeaturedBanner> {
+  final PageController _ctrl = PageController();
+  late final List<DrinkData> _items = _featuredNames
+      .map((n) => _drinks.firstWhere((d) => d.name == n))
+      .toList();
+  Timer? _timer;
+  int _page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _startAutoPlay();
+  }
+
+  void _startAutoPlay() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!_ctrl.hasClients) return;
+      _ctrl.animateToPage(
+        (_page + 1) % _items.length,
+        duration: const Duration(milliseconds: 650),
+        curve: Curves.easeInOutCubic,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      SizedBox(
+        height: 156,
+        child: NotificationListener<ScrollStartNotification>(
+          // Restart the timer after a manual swipe so it doesn't jump right away.
+          onNotification: (n) {
+            if (n.dragDetails != null) _startAutoPlay();
+            return false;
+          },
+          child: PageView.builder(
+            controller: _ctrl,
+            itemCount: _items.length,
+            onPageChanged: (i) => setState(() => _page = i),
+            itemBuilder: (ctx, i) => AnimatedBuilder(
+              animation: _ctrl,
+              builder: (_, child) {
+                final page = _ctrl.hasClients && _ctrl.position.haveDimensions
+                    ? _ctrl.page ?? _page.toDouble()
+                    : _page.toDouble();
+                return _bannerItem(ctx, _items[i], i - page);
+              },
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(height: 10),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: List.generate(_items.length, (i) {
+          final active = i == _page;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            margin: const EdgeInsets.symmetric(horizontal: 3),
+            width: active ? 20 : 6,
+            height: 6,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(3),
+              color: active
+                  ? _items[_page].accent
+                  : (_isDark.value ? Colors.white30 : Colors.black26),
+            ),
+          );
+        }),
+      ),
+    ],
+  );
+
+  Widget _bannerItem(BuildContext ctx, DrinkData d, double offset) {
+    final heroTag = 'banner-${d.name}';
+    final seasonal = d.category == 'Seasonal';
+    return GestureDetector(
+      onTap: () => Navigator.of(ctx).push(
+        PageRouteBuilder(
+          pageBuilder: (_, anim, __) => FadeTransition(
+            opacity: anim,
+            child: DrinkDetailScreen(drink: d, heroTag: heroTag),
+          ),
+          transitionDuration: const Duration(milliseconds: 350),
+        ),
+      ),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: d.gradient,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: d.gradient[0].withAlpha(100),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: Stack(
+            children: [
+              Positioned(
+                right: -30,
+                bottom: -40,
+                child: Container(
+                  width: 170,
+                  height: 170,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withAlpha(18),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 8, 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              color: Colors.black.withAlpha(50),
+                            ),
+                            child: Text(
+                              seasonal ? 'SEASONAL SPECIAL' : 'NEW',
+                              style: TextStyle(
+                                color: d.accent,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            d.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            d.description,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white.withAlpha(190),
+                              fontSize: 11,
+                              height: 1.35,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Text(
+                                'Order now',
+                                style: TextStyle(
+                                  color: d.accent,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.arrow_forward_rounded,
+                                size: 14,
+                                color: d.accent,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Parallax: the cup drifts slower than the card.
+                    Transform.translate(
+                      offset: Offset(offset * 70, 0),
+                      child: Hero(
+                        tag: heroTag,
+                        child: Image.asset(
+                          d.asset,
+                          height: 118,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) =>
+                              Icon(Icons.local_cafe, color: d.accent, size: 60),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
