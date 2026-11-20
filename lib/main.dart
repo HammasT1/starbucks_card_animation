@@ -1,5 +1,6 @@
-﻿import 'dart:math';
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 void main() => runApp(const MyApp());
 
@@ -54,6 +55,676 @@ int _cartCount(List<CartItem> items) =>
 
 double _cartTotal(List<CartItem> items) =>
     items.fold<double>(0, (total, item) => total + item.totalPrice);
+
+// ─── Size Pricing ─────────────────────────────────────────────────────────────
+
+const Map<String, double> _sizeDelta = {
+  'Tall': -0.50,
+  'Grande': 0,
+  'Venti': 0.50,
+  'Trenta': 0.80,
+};
+
+double _priceFor(DrinkData drink, String size) =>
+    _parsePrice(drink.price) + (_sizeDelta[size] ?? 0);
+
+String _sizeDeltaLabel(String size) {
+  final delta = _sizeDelta[size] ?? 0;
+  if (delta == 0) return 'Base';
+  return '${delta > 0 ? '+' : '−'}${_formatPrice(delta.abs())}';
+}
+
+// ─── Wallet State ─────────────────────────────────────────────────────────────
+
+class WalletTxn {
+  final int cardIndex;
+  final String title;
+  final double amount; // positive = top-up, negative = purchase
+  final DateTime time;
+
+  const WalletTxn({
+    required this.cardIndex,
+    required this.title,
+    required this.amount,
+    required this.time,
+  });
+}
+
+final ValueNotifier<int> _activeCard = ValueNotifier<int>(0);
+final ValueNotifier<int> _stars = ValueNotifier<int>(315);
+final ValueNotifier<List<double>> _balances = ValueNotifier<List<double>>(
+  _cards.map((c) => _parsePrice(c.balance)).toList(),
+);
+final ValueNotifier<List<WalletTxn>> _transactions =
+    ValueNotifier<List<WalletTxn>>(_seedTransactions());
+
+List<WalletTxn> _seedTransactions() {
+  final now = DateTime.now();
+  final seed = <WalletTxn>[];
+  for (var i = 0; i < _cards.length; i++) {
+    seed.addAll([
+      WalletTxn(
+        cardIndex: i,
+        title: 'Caramel Macchiato · Grande',
+        amount: -5.45,
+        time: now.subtract(Duration(days: 1 + i, hours: 3)),
+      ),
+      WalletTxn(
+        cardIndex: i,
+        title: 'Added money',
+        amount: 25,
+        time: now.subtract(Duration(days: 4 + i, hours: 6)),
+      ),
+      WalletTxn(
+        cardIndex: i,
+        title: 'Cold Brew · Venti',
+        amount: -4.75,
+        time: now.subtract(Duration(days: 7 + i, hours: 1)),
+      ),
+    ]);
+  }
+  seed.sort((a, b) => b.time.compareTo(a.time));
+  return seed;
+}
+
+void _recordTxn(int cardIndex, String title, double amount) {
+  final balances = List<double>.from(_balances.value);
+  balances[cardIndex] = balances[cardIndex] + amount;
+  _balances.value = balances;
+  _transactions.value = [
+    WalletTxn(
+      cardIndex: cardIndex,
+      title: title,
+      amount: amount,
+      time: DateTime.now(),
+    ),
+    ..._transactions.value,
+  ];
+}
+
+const _monthNames = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+String _formatTxnTime(DateTime t) {
+  final hh = t.hour.toString().padLeft(2, '0');
+  final mm = t.minute.toString().padLeft(2, '0');
+  return '${_monthNames[t.month - 1]} ${t.day} · $hh:$mm';
+}
+
+// ─── Bottom Sheets ────────────────────────────────────────────────────────────
+
+Color _sheetBg() =>
+    _isDark.value ? const Color(0xFF14231D) : const Color(0xFFFAFDFB);
+Color _sheetOn() => _isDark.value ? Colors.white : const Color(0xFF15231A);
+Color _sheetSub() => _isDark.value ? Colors.white60 : Colors.black54;
+
+Future<T?> _showAppSheet<T>(
+  BuildContext context, {
+  required String title,
+  String? subtitle,
+  required Widget Function(BuildContext sheetContext) builder,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: _sheetBg(),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+    ),
+    builder: (sheetContext) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: _sheetSub().withAlpha(80),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              title,
+              style: TextStyle(
+                color: _sheetOn(),
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(color: _sheetSub(), fontSize: 13),
+              ),
+            ],
+            const SizedBox(height: 18),
+            builder(sheetContext),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Widget _sheetButton({
+  required String label,
+  required Color color,
+  required VoidCallback? onPressed,
+  Color foreground = Colors.white,
+}) => SizedBox(
+  width: double.infinity,
+  child: ElevatedButton(
+    onPressed: onPressed,
+    style: ElevatedButton.styleFrom(
+      backgroundColor: color,
+      foregroundColor: foreground,
+      disabledBackgroundColor: _sheetSub().withAlpha(40),
+      disabledForegroundColor: _sheetSub(),
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+    ),
+    child: Text(
+      label,
+      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+    ),
+  ),
+);
+
+void _showSnack(BuildContext context, String message) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1600),
+      ),
+    );
+}
+
+Future<void> _showAddMoneySheet(BuildContext context, int cardIndex) {
+  final card = _cards[cardIndex];
+  const amounts = [10.0, 25.0, 50.0, 100.0];
+  var selected = 25.0;
+  return _showAppSheet(
+    context,
+    title: 'Add Money',
+    subtitle:
+        '${card.name} · balance ${_formatPrice(_balances.value[cardIndex])}',
+    builder: (sheetContext) => StatefulBuilder(
+      builder: (_, setSheet) => Column(
+        children: [
+          Row(
+            children: amounts.map((a) {
+              final active = a == selected;
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () => setSheet(() => selected = a),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOut,
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      gradient: active
+                          ? LinearGradient(colors: card.gradient)
+                          : null,
+                      color: active ? null : _sheetSub().withAlpha(20),
+                      border: Border.all(
+                        color: active ? card.accent : _sheetSub().withAlpha(50),
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '\$${a.toStringAsFixed(0)}',
+                        style: TextStyle(
+                          color: active ? Colors.white : _sheetOn(),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 22),
+          _sheetButton(
+            label: 'Add ${_formatPrice(selected)} to ${card.name}',
+            color: card.gradient[0],
+            onPressed: () {
+              _recordTxn(cardIndex, 'Added money', selected);
+              Navigator.of(sheetContext).pop();
+              _showSnack(
+                context,
+                '${_formatPrice(selected)} added to ${card.name}',
+              );
+            },
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Future<void> _showPaySheet(BuildContext context, int cardIndex) {
+  final card = _cards[cardIndex];
+  return _showAppSheet(
+    context,
+    title: 'Scan to Pay',
+    subtitle: 'Show this code to the barista at the register',
+    builder: (_) => Column(
+      children: [
+        Center(
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: card.gradient[0].withAlpha(90),
+                  blurRadius: 30,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: QrImageView(
+              data: 'SBUX-CARD|${card.tier}|${card.number}',
+              version: QrVersions.auto,
+              size: 200,
+              backgroundColor: Colors.white,
+              eyeStyle: QrEyeStyle(
+                eyeShape: QrEyeShape.circle,
+                color: card.gradient[1],
+              ),
+              dataModuleStyle: QrDataModuleStyle(
+                dataModuleShape: QrDataModuleShape.circle,
+                color: card.gradient[1],
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(colors: card.gradient),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.credit_card_rounded, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      card.name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      card.number,
+                      style: TextStyle(
+                        color: Colors.white.withAlpha(170),
+                        fontSize: 11,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                _formatPrice(_balances.value[cardIndex]),
+                style: TextStyle(
+                  color: card.accent,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<void> _showHistorySheet(BuildContext context, int cardIndex) {
+  final card = _cards[cardIndex];
+  return _showAppSheet(
+    context,
+    title: 'History',
+    subtitle: card.name,
+    builder: (_) => ValueListenableBuilder<List<WalletTxn>>(
+      valueListenable: _transactions,
+      builder: (_, all, __) {
+        final txns = all.where((t) => t.cardIndex == cardIndex).toList();
+        if (txns.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 30),
+            child: Center(
+              child: Text(
+                'No transactions yet',
+                style: TextStyle(color: _sheetSub()),
+              ),
+            ),
+          );
+        }
+        return ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.5,
+          ),
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: txns.length,
+            separatorBuilder: (_, __) =>
+                Divider(color: _sheetSub().withAlpha(30), height: 1),
+            itemBuilder: (_, i) {
+              final t = txns[i];
+              final topUp = t.amount > 0;
+              final color = topUp ? const Color(0xFF2E7D32) : _sheetOn();
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: (topUp ? const Color(0xFF2E7D32) : card.accent)
+                            .withAlpha(35),
+                      ),
+                      child: Icon(
+                        topUp
+                            ? Icons.add_card_rounded
+                            : Icons.local_cafe_rounded,
+                        size: 19,
+                        color: topUp ? const Color(0xFF43A047) : card.accent,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            t.title,
+                            style: TextStyle(
+                              color: _sheetOn(),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                          Text(
+                            _formatTxnTime(t.time),
+                            style: TextStyle(color: _sheetSub(), fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      '${topUp ? '+' : '−'}${_formatPrice(t.amount.abs())}',
+                      style: TextStyle(
+                        color: topUp ? const Color(0xFF43A047) : color,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    ),
+  );
+}
+
+Future<void> _showCheckoutSheet(BuildContext context) {
+  var cardIndex = _activeCard.value;
+  return _showAppSheet(
+    context,
+    title: 'Checkout',
+    subtitle: 'Choose a card to pay with',
+    builder: (sheetContext) => AnimatedBuilder(
+      animation: Listenable.merge([_balances, _cart]),
+      builder: (_, __) => StatefulBuilder(
+        builder: (_, setSheet) {
+          final items = _cart.value;
+          final total = _cartTotal(items);
+          final balance = _balances.value[cardIndex];
+          final enough = balance >= total;
+          final starsEarned = (total * 2).floor();
+          final card = _cards[cardIndex];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                height: 108,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _cards.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 10),
+                  itemBuilder: (_, i) {
+                    final c = _cards[i];
+                    final active = i == cardIndex;
+                    return GestureDetector(
+                      onTap: () => setSheet(() => cardIndex = i),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        width: 140,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          gradient: LinearGradient(colors: c.gradient),
+                          border: Border.all(
+                            color: active ? c.accent : Colors.transparent,
+                            width: 2.5,
+                          ),
+                          boxShadow: active
+                              ? [
+                                  BoxShadow(
+                                    color: c.gradient[0].withAlpha(120),
+                                    blurRadius: 14,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    c.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                                if (active)
+                                  Icon(
+                                    Icons.check_circle_rounded,
+                                    color: c.accent,
+                                    size: 16,
+                                  ),
+                              ],
+                            ),
+                            Text(
+                              _formatPrice(_balances.value[i]),
+                              style: TextStyle(
+                                color: c.accent,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 20),
+              _summaryRow('Items', '${_cartCount(items)}'),
+              const SizedBox(height: 6),
+              _summaryRow('Stars you\'ll earn', '+$starsEarned ★'),
+              const SizedBox(height: 6),
+              _summaryRow('Total', _formatPrice(total), bold: true),
+              if (!enough) ...[
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: const Color(0xFFE53935).withAlpha(30),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: Color(0xFFE53935),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Not enough balance on ${card.name}.',
+                          style: TextStyle(color: _sheetOn(), fontSize: 13),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () =>
+                            _showAddMoneySheet(sheetContext, cardIndex),
+                        child: const Text('Add money'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
+              _sheetButton(
+                label: enough
+                    ? 'Pay ${_formatPrice(total)}'
+                    : 'Insufficient balance',
+                color: const Color(0xFF00704A),
+                onPressed: enough && items.isNotEmpty
+                    ? () {
+                        final count = _cartCount(items);
+                        _recordTxn(
+                          cardIndex,
+                          'Order · $count item${count == 1 ? '' : 's'}',
+                          -total,
+                        );
+                        _stars.value += starsEarned;
+                        _cart.value = [];
+                        Navigator.of(sheetContext).pop();
+                        _showOrderPlacedDialog(context, starsEarned);
+                      }
+                    : null,
+              ),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+}
+
+Widget _summaryRow(String label, String value, {bool bold = false}) => Row(
+  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  children: [
+    Text(
+      label,
+      style: TextStyle(
+        color: bold ? _sheetOn() : _sheetSub(),
+        fontSize: bold ? 18 : 13,
+        fontWeight: bold ? FontWeight.w800 : FontWeight.w400,
+      ),
+    ),
+    Text(
+      value,
+      style: TextStyle(
+        color: bold ? const Color(0xFFCBA258) : _sheetOn(),
+        fontSize: bold ? 22 : 13,
+        fontWeight: bold ? FontWeight.w900 : FontWeight.w700,
+      ),
+    ),
+  ],
+);
+
+Future<void> _showOrderPlacedDialog(BuildContext context, int starsEarned) {
+  return showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      backgroundColor: _sheetBg(),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 72,
+            height: 72,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              color: Color(0xFF00704A),
+            ),
+            child: const Icon(
+              Icons.check_rounded,
+              color: Colors.white,
+              size: 42,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Order placed!',
+            style: TextStyle(
+              color: _sheetOn(),
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Your drinks will be ready in about 5 minutes.\nYou earned $starsEarned ★',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: _sheetSub(), fontSize: 13, height: 1.5),
+          ),
+          const SizedBox(height: 20),
+          _sheetButton(
+            label: 'Done',
+            color: const Color(0xFF00704A),
+            onPressed: () => Navigator.of(dialogContext).pop(),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
 Widget _buildThemeToggle() => ValueListenableBuilder<bool>(
   valueListenable: _isDark,
@@ -128,7 +799,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       themeMode: dark ? ThemeMode.dark : ThemeMode.light,
       theme: ThemeData(
-        fontFamily: 'sans-serif',
+        fontFamily: 'Poppins',
         brightness: Brightness.light,
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF00704A),
@@ -136,7 +807,7 @@ class MyApp extends StatelessWidget {
         ),
       ),
       darkTheme: ThemeData(
-        fontFamily: 'sans-serif',
+        fontFamily: 'Poppins',
         brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF00704A),
@@ -356,7 +1027,7 @@ class CartItem {
   });
 
   String get id => '${drink.name}::$size';
-  double get unitPrice => _parsePrice(drink.price);
+  double get unitPrice => _priceFor(drink, size);
   double get totalPrice => unitPrice * quantity;
 
   CartItem copyWith({DrinkData? drink, String? size, int? quantity}) =>
@@ -443,7 +1114,7 @@ final List<DrinkData> _drinks = [
     category: 'Cold',
     description:
         'Sweet strawberry flavors and passion fruit combined with açaí notes and real strawberry pieces over ice.',
-    price: r'\$5.25',
+    price: r'$5.25',
     origin: 'Brazil',
     ingredients: 'Water, Strawberry Juice, Açaí Powder, Ice, Lemonade',
     calories: 140,
@@ -457,7 +1128,7 @@ final List<DrinkData> _drinks = [
     category: 'Cold',
     description:
         'A vibrant blue spirulina cooler with coconut milk, lemonade, and real blueberry pieces over ice.',
-    price: r'\$5.45',
+    price: r'$5.45',
     origin: 'Thailand',
     ingredients: 'Coconut Milk, Lemonade, Spirulina, Blueberry, Ice',
     calories: 120,
@@ -471,7 +1142,7 @@ final List<DrinkData> _drinks = [
     category: 'Seasonal',
     description:
         'Bold chai spices infused in steamed milk with a hint of smoked vanilla and a caramel rim. Warming and bold.',
-    price: r'\$5.65',
+    price: r'$5.65',
     origin: 'India',
     ingredients: 'Milk, Chai Concentrate, Smoked Vanilla, Caramel',
     calories: 310,
@@ -573,6 +1244,7 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
 
   void _onPageChanged(int idx) {
     final prev = _current;
+    _activeCard.value = idx;
     setState(() => _current = idx);
     _bg1 = ColorTween(
       begin: _cards[prev].gradient[0],
@@ -616,6 +1288,8 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
           _entryCtrl,
           _shimmerCtrl,
           _isDark,
+          _balances,
+          _stars,
         ]),
         builder: (ctx, _) {
           final dark = _isDark.value;
@@ -753,25 +1427,32 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Welcome back',
-                style: TextStyle(color: onBgSub, fontSize: 12),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                'My Starbucks',
-                style: TextStyle(
-                  color: onBg,
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Welcome back',
+                  style: TextStyle(color: onBgSub, fontSize: 12),
                 ),
-              ),
-            ],
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'My Starbucks',
+                    style: TextStyle(
+                      color: onBg,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 12),
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1056,7 +1737,7 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                card.balance,
+                                _formatPrice(_balances.value[idx]),
                                 style: TextStyle(
                                   color: card.accent,
                                   fontSize: 22,
@@ -1159,9 +1840,9 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _stat('Balance', c.balance, c.accent),
+            _stat('Balance', _formatPrice(_balances.value[_current]), c.accent),
             _divider(),
-            _stat('Stars', '315 *', Colors.yellowAccent),
+            _stat('Stars', '${_stars.value} ★', Colors.yellowAccent),
             _divider(),
             _stat('Tier', c.tier, c.accent),
           ],
@@ -1212,24 +1893,44 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
         children: [
-          _actionBtn('Add Money', Icons.add_card_rounded, c.accent),
+          _actionBtn(
+            'Add Money',
+            Icons.add_card_rounded,
+            c.accent,
+            () => _showAddMoneySheet(context, _current),
+          ),
           const SizedBox(width: 10),
-          _actionBtn('Pay', Icons.nfc_rounded, iconClr),
+          _actionBtn(
+            'Pay',
+            Icons.qr_code_2_rounded,
+            iconClr,
+            () => _showPaySheet(context, _current),
+          ),
           const SizedBox(width: 10),
-          _actionBtn('History', Icons.receipt_long_rounded, iconClr),
+          _actionBtn(
+            'History',
+            Icons.receipt_long_rounded,
+            iconClr,
+            () => _showHistorySheet(context, _current),
+          ),
         ],
       ),
     );
   }
 
-  Widget _actionBtn(String label, IconData icon, Color iconColor) {
+  Widget _actionBtn(
+    String label,
+    IconData icon,
+    Color iconColor,
+    VoidCallback onTap,
+  ) {
     final dark = _isDark.value;
     return Expanded(
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () {},
+          onTap: onTap,
           child: Container(
             padding: const EdgeInsets.symmetric(vertical: 13),
             decoration: BoxDecoration(
@@ -1897,7 +2598,7 @@ class CartScreen extends StatelessWidget {
                               SizedBox(
                                 width: double.infinity,
                                 child: ElevatedButton(
-                                  onPressed: () {},
+                                  onPressed: () => _showCheckoutSheet(context),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: const Color(0xFF00704A),
                                     foregroundColor: Colors.white,
@@ -1954,16 +2655,13 @@ class _CartTile extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Hero(
-            tag: 'drink-${item.drink.name}',
-            child: Image.asset(
-              item.drink.asset,
-              height: 70,
-              width: 70,
-              fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) =>
-                  Icon(Icons.local_cafe, color: item.drink.accent, size: 46),
-            ),
+          Image.asset(
+            item.drink.asset,
+            height: 70,
+            width: 70,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) =>
+                Icon(Icons.local_cafe, color: item.drink.accent, size: 46),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -2099,7 +2797,8 @@ class _DrinkDetailScreenState extends State<DrinkDetailScreen>
   @override
   Widget build(BuildContext context) {
     final d = widget.drink;
-    final totalPrice = _parsePrice(d.price) * _quantity;
+    final unitPrice = _priceFor(d, _selectedSize);
+    final totalPrice = unitPrice * _quantity;
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -2218,12 +2917,27 @@ class _DrinkDetailScreenState extends State<DrinkDetailScreen>
                               ),
                             ),
                             const SizedBox(width: 10),
-                            Text(
-                              d.price,
-                              style: TextStyle(
-                                color: d.accent,
-                                fontSize: 26,
-                                fontWeight: FontWeight.w800,
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 250),
+                              transitionBuilder: (child, anim) =>
+                                  FadeTransition(
+                                    opacity: anim,
+                                    child: SlideTransition(
+                                      position: Tween<Offset>(
+                                        begin: const Offset(0, 0.4),
+                                        end: Offset.zero,
+                                      ).animate(anim),
+                                      child: child,
+                                    ),
+                                  ),
+                              child: Text(
+                                _formatPrice(unitPrice),
+                                key: ValueKey(unitPrice),
+                                style: TextStyle(
+                                  color: d.accent,
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w800,
+                                ),
                               ),
                             ),
                           ],
@@ -2303,13 +3017,9 @@ class _DrinkDetailScreenState extends State<DrinkDetailScreen>
                                 size: _selectedSize,
                                 quantity: _quantity,
                               );
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    '${d.name} x$_quantity added to cart',
-                                  ),
-                                  duration: const Duration(milliseconds: 1200),
-                                ),
+                              _showSnack(
+                                context,
+                                '${d.name} ($_selectedSize) x$_quantity added to cart',
                               );
                             },
                             style: ElevatedButton.styleFrom(
@@ -2413,13 +3123,26 @@ class _DrinkDetailScreenState extends State<DrinkDetailScreen>
                   ? [BoxShadow(color: d.accent.withAlpha(80), blurRadius: 12)]
                   : null,
             ),
-            child: Text(
-              s,
-              style: TextStyle(
-                color: active ? Colors.black : Colors.white60,
-                fontSize: 13,
-                fontWeight: active ? FontWeight.w800 : FontWeight.w400,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  s,
+                  style: TextStyle(
+                    color: active ? Colors.black : Colors.white60,
+                    fontSize: 13,
+                    fontWeight: active ? FontWeight.w800 : FontWeight.w400,
+                  ),
+                ),
+                Text(
+                  _sizeDeltaLabel(s),
+                  style: TextStyle(
+                    color: active ? Colors.black54 : Colors.white38,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ),
           ),
         );
