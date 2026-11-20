@@ -264,4 +264,97 @@ void main() {
       findsOneWidget,
     );
   });
+
+  Future<void> openDrink(WidgetTester tester, String name) async {
+    await openMenu(tester);
+    // Search first so the card sits at the top of the grid.
+    await tester.enterText(find.byType(TextField), name);
+    await _settle(tester);
+    await tester.tap(find.text(name).last);
+    await _settle(tester);
+  }
+
+  testWidgets('Add-to-cart bar is pinned without scrolling', (tester) async {
+    await openDrink(tester, 'Caramel Macchiato');
+    expect(find.textContaining('to Cart •').hitTestable(), findsOneWidget);
+
+    await tester.tap(find.textContaining('to Cart •'));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.text('Added to cart'), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 2));
+    await _settle(tester); // let the label fade back
+    expect(find.text('Added to cart'), findsNothing);
+  });
+
+  testWidgets('Milk and extra shots change price and become a cart line', (
+    tester,
+  ) async {
+    await openDrink(tester, 'Caramel Macchiato');
+    expect(find.text(r'$5.45'), findsWidgets);
+
+    await _tapText(tester, 'Oat');
+    expect(find.text(r'$6.15'), findsOneWidget); // +$0.70
+
+    await tester.ensureVisible(find.text('Extra espresso shot'));
+    await _settle(tester);
+    final shotRow = find.ancestor(
+      of: find.text('Extra espresso shot'),
+      matching: find.byType(Row),
+    );
+    await tester.tap(
+      find.descendant(of: shotRow.first, matching: find.byIcon(Icons.add)),
+    );
+    await _settle(tester);
+    expect(find.text(r'$6.95'), findsOneWidget); // +$0.80 shot
+
+    await tester.tap(find.textContaining('to Cart •'));
+    await _settle(tester);
+    await tester.tap(find.byIcon(Icons.arrow_back_ios_rounded));
+    await _settle(tester);
+    await tester.tap(find.text('Cart'));
+    await _settle(tester);
+
+    expect(find.text('Oat milk · +1 shot'), findsOneWidget);
+    expect(find.text(r'Size: Grande • $6.95 each'), findsOneWidget);
+  });
+
+  testWidgets('Nutrition scales with size, shots and sweetness', (
+    tester,
+  ) async {
+    await openDrink(tester, 'Caramel Macchiato');
+    await tester.ensureVisible(find.text('Caffeine'));
+    await _settle(tester);
+    expect(find.text('150 mg'), findsOneWidget);
+    expect(find.text('33 g'), findsOneWidget);
+
+    await _tapText(tester, 'Venti');
+    expect(find.text('188 mg'), findsOneWidget); // 150 × 1.25
+
+    await tester.ensureVisible(find.byKey(const ValueKey('segment-None')));
+    await _settle(tester);
+    await tester.tap(find.byKey(const ValueKey('segment-None')));
+    await _settle(tester);
+    expect(find.text('12 g'), findsOneWidget); // 33 × 1.25 × 0.3
+  });
+
+  testWidgets('Cup grows with size', (tester) async {
+    await openDrink(tester, 'Caramel Macchiato');
+    double cupScale() =>
+        tester.widget<AnimatedScale>(find.byType(AnimatedScale)).scale;
+
+    expect(cupScale(), 0.92);
+    await _tapText(tester, 'Venti');
+    expect(cupScale(), 1.04);
+    await _tapText(tester, 'Tall');
+    expect(cupScale(), 0.8);
+    expect(find.text('Tall · 354 ml'), findsOneWidget);
+  });
+
+  testWidgets('Options only appear where they apply', (tester) async {
+    await openDrink(tester, 'Cold Brew');
+    expect(find.text('Extra espresso shot'), findsOneWidget);
+    expect(find.text('Milk'), findsNothing);
+    expect(find.text('Sweetness'), findsNothing);
+  });
 }
