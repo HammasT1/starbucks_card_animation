@@ -12,6 +12,9 @@ final ValueNotifier<bool> _isDark = ValueNotifier<bool>(true);
 final ValueNotifier<List<CartItem>> _cart = ValueNotifier<List<CartItem>>([]);
 final ValueNotifier<Set<String>> _favourites = ValueNotifier<Set<String>>({});
 
+/// Selected bottom-navigation tab (0 = My Cards, 1 = Menu, 2 = Cart).
+final ValueNotifier<int> _currentTab = ValueNotifier<int>(0);
+
 /// Incremented whenever something lands in the cart, to bounce the tab badge.
 final ValueNotifier<int> _cartBump = ValueNotifier<int>(0);
 
@@ -74,6 +77,31 @@ void _updateCartQuantity(String id, int quantity) {
 
 void _removeFromCart(String id) {
   _cart.value = _cart.value.where((item) => item.id != id).toList();
+}
+
+/// Removes [item] and offers an Undo that puts it back in the same place.
+void _removeWithUndo(BuildContext context, CartItem item) {
+  final index = _cart.value.indexWhere((i) => i.id == item.id);
+  if (index < 0) return;
+  _removeFromCart(item.id);
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text('${item.drink.name} removed'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'Undo',
+          onPressed: () {
+            final items = List<CartItem>.from(_cart.value);
+            if (items.any((i) => i.id == item.id)) return;
+            items.insert(min(index, items.length), item);
+            _cart.value = items;
+          },
+        ),
+      ),
+    );
 }
 
 int _cartCount(List<CartItem> items) =>
@@ -569,174 +597,95 @@ Future<void> _showHistorySheet(BuildContext context, int cardIndex) {
   );
 }
 
-Future<void> _showCheckoutSheet(BuildContext context) {
-  var cardIndex = _activeCard.value;
-  return _showAppSheet(
-    context,
-    title: 'Checkout',
-    subtitle: 'Choose a card to pay with',
-    builder: (sheetContext) => AnimatedBuilder(
-      animation: Listenable.merge([_balances, _cart]),
-      builder: (_, __) => StatefulBuilder(
-        builder: (_, setSheet) {
-          final items = _cart.value;
-          final total = _cartTotal(items);
-          final balance = _balances.value[cardIndex];
-          final enough = balance >= total;
-          final starsEarned = (total * 2).floor();
-          final card = _cards[cardIndex];
-          return Column(
+Widget _cardPicker({
+  required int selected,
+  required ValueChanged<int> onChanged,
+}) => SizedBox(
+  height: 108,
+  child: ListView.separated(
+    scrollDirection: Axis.horizontal,
+    itemCount: _cards.length,
+    separatorBuilder: (_, __) => const SizedBox(width: 10),
+    itemBuilder: (_, i) {
+      final c = _cards[i];
+      final active = i == selected;
+      return GestureDetector(
+        key: ValueKey('pay-card-$i'),
+        onTap: () => onChanged(i),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          width: 140,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(colors: c.gradient),
+            border: Border.all(
+              color: active ? c.accent : Colors.transparent,
+              width: 2.5,
+            ),
+            boxShadow: active
+                ? [
+                    BoxShadow(
+                      color: c.gradient[0].withAlpha(120),
+                      blurRadius: 14,
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              SizedBox(
-                height: 108,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _cards.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 10),
-                  itemBuilder: (_, i) {
-                    final c = _cards[i];
-                    final active = i == cardIndex;
-                    return GestureDetector(
-                      onTap: () => setSheet(() => cardIndex = i),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
-                        width: 140,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(18),
-                          gradient: LinearGradient(colors: c.gradient),
-                          border: Border.all(
-                            color: active ? c.accent : Colors.transparent,
-                            width: 2.5,
-                          ),
-                          boxShadow: active
-                              ? [
-                                  BoxShadow(
-                                    color: c.gradient[0].withAlpha(120),
-                                    blurRadius: 14,
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    c.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                                if (active)
-                                  Icon(
-                                    Icons.check_circle_rounded,
-                                    color: c.accent,
-                                    size: 16,
-                                  ),
-                              ],
-                            ),
-                            Text(
-                              _formatPrice(_balances.value[i]),
-                              style: TextStyle(
-                                color: c.accent,
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      c.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                  if (active)
+                    Icon(Icons.check_circle_rounded, color: c.accent, size: 16),
+                ],
               ),
-              const SizedBox(height: 20),
-              _summaryRow('Items', '${_cartCount(items)}'),
-              const SizedBox(height: 6),
-              _summaryRow('Stars you\'ll earn', '+$starsEarned ★'),
-              const SizedBox(height: 6),
-              _summaryRow('Total', _formatPrice(total), bold: true),
-              if (!enough) ...[
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    color: const Color(0xFFE53935).withAlpha(30),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.info_outline_rounded,
-                        color: Color(0xFFE53935),
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Not enough balance on ${card.name}.',
-                          style: TextStyle(color: _sheetOn(), fontSize: 13),
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: () =>
-                            _showAddMoneySheet(sheetContext, cardIndex),
-                        child: const Text('Add money'),
-                      ),
-                    ],
-                  ),
+              Text(
+                _formatPrice(_balances.value[i]),
+                style: TextStyle(
+                  color: c.accent,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
                 ),
-              ],
-              const SizedBox(height: 20),
-              _sheetButton(
-                label: enough
-                    ? 'Pay ${_formatPrice(total)}'
-                    : 'Insufficient balance',
-                color: const Color(0xFF00704A),
-                onPressed: enough && items.isNotEmpty
-                    ? () {
-                        final count = _cartCount(items);
-                        _recordTxn(
-                          cardIndex,
-                          'Order · $count item${count == 1 ? '' : 's'}',
-                          -total,
-                        );
-                        _stars.value += starsEarned;
-                        _cart.value = [];
-                        Navigator.of(sheetContext).pop();
-                        _showOrderPlacedDialog(context, starsEarned);
-                      }
-                    : null,
               ),
             ],
-          );
-        },
-      ),
-    ),
-  );
-}
+          ),
+        ),
+      );
+    },
+  ),
+);
 
 Widget _summaryRow(String label, String value, {bool bold = false}) => Row(
   mainAxisAlignment: MainAxisAlignment.spaceBetween,
   children: [
-    Text(
-      label,
-      style: TextStyle(
-        color: bold ? _sheetOn() : _sheetSub(),
-        fontSize: bold ? 18 : 13,
-        fontWeight: bold ? FontWeight.w800 : FontWeight.w400,
+    Flexible(
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: bold ? _sheetOn() : _sheetSub(),
+          fontSize: bold ? 18 : 13,
+          fontWeight: bold ? FontWeight.w800 : FontWeight.w400,
+        ),
       ),
     ),
+    const SizedBox(width: 12),
     Text(
       value,
       style: TextStyle(
@@ -747,56 +696,6 @@ Widget _summaryRow(String label, String value, {bool bold = false}) => Row(
     ),
   ],
 );
-
-Future<void> _showOrderPlacedDialog(BuildContext context, int starsEarned) {
-  return showDialog<void>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      backgroundColor: _sheetBg(),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 8),
-          Container(
-            width: 72,
-            height: 72,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: Color(0xFF00704A),
-            ),
-            child: const Icon(
-              Icons.check_rounded,
-              color: Colors.white,
-              size: 42,
-            ),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'Order placed!',
-            style: TextStyle(
-              color: _sheetOn(),
-              fontSize: 20,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Your drinks will be ready in about 5 minutes.\nYou earned $starsEarned ★',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: _sheetSub(), fontSize: 13, height: 1.5),
-          ),
-          const SizedBox(height: 20),
-          _sheetButton(
-            label: 'Done',
-            color: const Color(0xFF00704A),
-            onPressed: () => Navigator.of(dialogContext).pop(),
-          ),
-        ],
-      ),
-    ),
-  );
-}
 
 Widget _buildThemeToggle() => ValueListenableBuilder<bool>(
   valueListenable: _isDark,
@@ -901,18 +800,23 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
-  int _tab = 0;
+  @override
+  void initState() {
+    super.initState();
+    _currentTab.value = 0; // the app always opens on My Cards
+  }
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_isDark, _cart]),
+      animation: Listenable.merge([_isDark, _cart, _currentTab]),
       builder: (_, __) {
         final dark = _isDark.value;
         final cartCount = _cartCount(_cart.value);
+        final tab = _currentTab.value;
         return Scaffold(
           body: IndexedStack(
-            index: _tab,
+            index: tab,
             children: const [StarbucksCardScreen(), MenuScreen(), CartScreen()],
           ),
           bottomNavigationBar: Container(
@@ -924,8 +828,8 @@ class _MainShellState extends State<MainShell> {
               ),
             ),
             child: BottomNavigationBar(
-              currentIndex: _tab,
-              onTap: (i) => setState(() => _tab = i),
+              currentIndex: tab,
+              onTap: (i) => _currentTab.value = i,
               backgroundColor: Colors.transparent,
               selectedItemColor: const Color(0xFFCBA258),
               unselectedItemColor: dark ? Colors.white54 : Colors.black45,
@@ -2830,7 +2734,7 @@ class CartScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_isDark, _cart]),
+      animation: Listenable.merge([_isDark, _cart, _activeOrder]),
       builder: (_, __) {
         final dark = _isDark.value;
         final items = _cart.value;
@@ -2886,49 +2790,21 @@ class CartScreen extends StatelessWidget {
                     ],
                   ),
                 ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                  child: _activeOrder.value == null
+                      ? const SizedBox(width: double.infinity)
+                      : Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                          child: ActiveOrderBanner(
+                            order: _activeOrder.value!,
+                            dark: dark,
+                          ),
+                        ),
+                ),
                 if (items.isEmpty)
-                  Expanded(
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 120,
-                            height: 120,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              gradient: RadialGradient(
-                                colors: [
-                                  const Color(0xFF00704A).withAlpha(60),
-                                  Colors.transparent,
-                                ],
-                              ),
-                            ),
-                            child: const Icon(
-                              Icons.shopping_bag_outlined,
-                              color: Color(0xFF00704A),
-                              size: 54,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          Text(
-                            'Your cart is empty',
-                            style: TextStyle(
-                              color: onBg,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Add drinks from the menu and adjust quantity here.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: subBg, fontSize: 13),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
+                  Expanded(child: EmptyCart(dark: dark))
                 else
                   Expanded(
                     child: Column(
@@ -2941,7 +2817,14 @@ class CartScreen extends StatelessWidget {
                                 const SizedBox(height: 12),
                             itemBuilder: (_, index) {
                               final item = items[index];
-                              return _CartTile(item: item, dark: dark);
+                              return Dismissible(
+                                key: ValueKey(item.id),
+                                direction: DismissDirection.endToStart,
+                                background: _swipeBackground(),
+                                onDismissed: (_) =>
+                                    _removeWithUndo(context, item),
+                                child: _CartTile(item: item, dark: dark),
+                              );
                             },
                           ),
                         ),
@@ -2995,8 +2878,9 @@ class CartScreen extends StatelessWidget {
                                       fontWeight: FontWeight.w800,
                                     ),
                                   ),
-                                  Text(
-                                    _formatPrice(total),
+                                  CountUpText(
+                                    value: total,
+                                    format: _formatPrice,
                                     style: const TextStyle(
                                       color: Color(0xFFCBA258),
                                       fontSize: 22,
@@ -3009,7 +2893,11 @@ class CartScreen extends StatelessWidget {
                               SizedBox(
                                 width: double.infinity,
                                 child: ElevatedButton(
-                                  onPressed: () => _showCheckoutSheet(context),
+                                  onPressed: () => Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => const CheckoutScreen(),
+                                    ),
+                                  ),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: const Color(0xFF00704A),
                                     foregroundColor: Colors.white,
@@ -3043,6 +2931,28 @@ class CartScreen extends StatelessWidget {
     );
   }
 }
+
+Widget _swipeBackground() => Container(
+  alignment: Alignment.centerRight,
+  padding: const EdgeInsets.symmetric(horizontal: 24),
+  decoration: BoxDecoration(
+    borderRadius: BorderRadius.circular(22),
+    gradient: const LinearGradient(
+      colors: [Color(0x00E53935), Color(0xFFE53935)],
+    ),
+  ),
+  child: const Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(
+        'Remove',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+      ),
+      SizedBox(width: 8),
+      Icon(Icons.delete_outline_rounded, color: Colors.white),
+    ],
+  ),
+);
 
 class _CartTile extends StatelessWidget {
   final CartItem item;
@@ -3109,8 +3019,9 @@ class _CartTile extends StatelessWidget {
                   children: [
                     _QtyButton(
                       icon: Icons.remove,
-                      onTap: () =>
-                          _updateCartQuantity(item.id, item.quantity - 1),
+                      onTap: () => item.quantity == 1
+                          ? _removeWithUndo(context, item)
+                          : _updateCartQuantity(item.id, item.quantity - 1),
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -3143,7 +3054,8 @@ class _CartTile extends StatelessWidget {
             ),
           ),
           IconButton(
-            onPressed: () => _removeFromCart(item.id),
+            tooltip: 'Remove',
+            onPressed: () => _removeWithUndo(context, item),
             icon: Icon(
               Icons.close_rounded,
               color: dark ? Colors.white54 : Colors.black45,
@@ -5419,4 +5331,1408 @@ class _FeaturedBannerState extends State<FeaturedBanner> {
       ),
     );
   }
+}
+
+// ─── Orders ───────────────────────────────────────────────────────────────────
+
+class PickupStore {
+  final String name, address;
+  final double distanceKm;
+  final String hours;
+
+  const PickupStore(this.name, this.address, this.distanceKm, this.hours);
+}
+
+const List<PickupStore> _stores = [
+  PickupStore('Downtown Plaza', '12 Market Street', 0.4, 'Open until 10 PM'),
+  PickupStore(
+    'Riverside Mall',
+    'Level 2, Riverside Mall',
+    1.2,
+    'Open until 9 PM',
+  ),
+  PickupStore('Central Station', 'Main concourse', 2.1, 'Open 24 hours'),
+];
+
+/// Pickup options: label and minutes until ready.
+const List<(String, String, int)> _pickupTimes = [
+  ('ASAP', '~5 min', 5),
+  ('In 15 min', 'Scheduled', 15),
+  ('In 30 min', 'Scheduled', 30),
+];
+
+class PlacedOrder {
+  final int number;
+  final List<CartItem> items;
+  final double total;
+  final int starsEarned;
+  final PickupStore store;
+  final DateTime placedAt, readyAt;
+
+  const PlacedOrder({
+    required this.number,
+    required this.items,
+    required this.total,
+    required this.starsEarned,
+    required this.store,
+    required this.placedAt,
+    required this.readyAt,
+  });
+
+  double progressAt(DateTime now) {
+    final total = readyAt.difference(placedAt).inMilliseconds;
+    if (total <= 0) return 1;
+    return (now.difference(placedAt).inMilliseconds / total).clamp(0.0, 1.0);
+  }
+
+  /// 0 = received, 1 = preparing, 2 = ready.
+  int stageAt(DateTime now) {
+    final p = progressAt(now);
+    if (p >= 1) return 2;
+    return p < 0.15 ? 0 : 1;
+  }
+}
+
+final ValueNotifier<PlacedOrder?> _activeOrder = ValueNotifier<PlacedOrder?>(
+  null,
+);
+
+String _formatCountdown(Duration d) {
+  if (d.isNegative) return '0:00';
+  final m = d.inMinutes;
+  final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+  return '$m:$s';
+}
+
+/// Rebuilds once a second, for countdowns.
+class _Ticker extends StatefulWidget {
+  final Widget Function(BuildContext context, DateTime now) builder;
+
+  const _Ticker({required this.builder});
+
+  @override
+  State<_Ticker> createState() => _TickerState();
+}
+
+class _TickerState extends State<_Ticker> {
+  late final Timer _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, DateTime.now());
+}
+
+// ─── Cup Painter ──────────────────────────────────────────────────────────────
+
+class CupPainter extends CustomPainter {
+  final double fill; // 0..1
+  final double wavePhase; // 0..1
+  final Color liquid;
+  final Color outline;
+
+  CupPainter({
+    required this.fill,
+    required this.wavePhase,
+    required this.liquid,
+    required this.outline,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final cx = w / 2;
+    final topY = h * 0.24;
+    final bottomY = h * 0.96;
+    final topHalf = w * 0.34;
+    final bottomHalf = w * 0.25;
+
+    final body = Path()
+      ..moveTo(cx - topHalf, topY)
+      ..lineTo(cx + topHalf, topY)
+      ..lineTo(cx + bottomHalf, bottomY - 8)
+      ..quadraticBezierTo(
+        cx + bottomHalf - 2,
+        bottomY,
+        cx + bottomHalf - 10,
+        bottomY,
+      )
+      ..lineTo(cx - bottomHalf + 10, bottomY)
+      ..quadraticBezierTo(
+        cx - bottomHalf + 2,
+        bottomY,
+        cx - bottomHalf,
+        bottomY - 8,
+      )
+      ..close();
+
+    // Glass tint.
+    canvas.drawPath(body, Paint()..color = outline.withAlpha(22));
+
+    // Liquid with a moving wave on top.
+    if (fill > 0) {
+      canvas.save();
+      canvas.clipPath(body);
+      final level = bottomY - (bottomY - topY) * fill;
+      final amplitude = fill >= 0.999 ? 0.0 : 4.0;
+      final wave = Path()..moveTo(0, level);
+      for (double x = 0; x <= w; x += 3) {
+        wave.lineTo(
+          x,
+          level + sin((x / w) * 2 * pi * 1.5 + wavePhase * 2 * pi) * amplitude,
+        );
+      }
+      wave
+        ..lineTo(w, h)
+        ..lineTo(0, h)
+        ..close();
+      canvas.drawPath(
+        wave,
+        Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color.lerp(liquid, Colors.white, 0.35)!, liquid],
+          ).createShader(Rect.fromLTWH(0, level, w, bottomY - level)),
+      );
+      canvas.restore();
+    }
+
+    final stroke = Paint()
+      ..color = outline
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(body, stroke);
+
+    // Sleeve band.
+    final sleeveTop = topY + (bottomY - topY) * 0.38;
+    final sleeveBottom = topY + (bottomY - topY) * 0.6;
+    double halfAt(double y) =>
+        topHalf + (bottomHalf - topHalf) * ((y - topY) / (bottomY - topY));
+    final sleeve = Path()
+      ..moveTo(cx - halfAt(sleeveTop), sleeveTop)
+      ..lineTo(cx + halfAt(sleeveTop), sleeveTop)
+      ..lineTo(cx + halfAt(sleeveBottom), sleeveBottom)
+      ..lineTo(cx - halfAt(sleeveBottom), sleeveBottom)
+      ..close();
+    canvas.drawPath(sleeve, Paint()..color = outline.withAlpha(70));
+
+    // Lid and straw.
+    final lid = RRect.fromRectAndRadius(
+      Rect.fromLTRB(cx - topHalf - 6, topY - h * 0.08, cx + topHalf + 6, topY),
+      const Radius.circular(6),
+    );
+    canvas.drawRRect(lid, Paint()..color = outline);
+    canvas.drawLine(
+      Offset(cx + topHalf * 0.25, topY - h * 0.08),
+      Offset(cx + topHalf * 0.6, h * 0.02),
+      Paint()
+        ..color = outline
+        ..strokeWidth = 5
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(CupPainter old) =>
+      old.fill != fill ||
+      old.wavePhase != wavePhase ||
+      old.liquid != liquid ||
+      old.outline != outline;
+}
+
+// ─── Empty Cart ───────────────────────────────────────────────────────────────
+
+class EmptyCart extends StatefulWidget {
+  final bool dark;
+
+  const EmptyCart({super.key, required this.dark});
+
+  @override
+  State<EmptyCart> createState() => _EmptyCartState();
+}
+
+class _EmptyCartState extends State<EmptyCart>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2400),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = widget.dark;
+    final onBg = dark ? Colors.white : const Color(0xFF15231A);
+    final sub = dark ? Colors.white70 : Colors.black54;
+    const green = Color(0xFF00A862);
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedBuilder(
+              animation: _ctrl,
+              builder: (_, __) {
+                final t = Curves.easeInOut.transform(_ctrl.value);
+                return SizedBox(
+                  width: 150,
+                  height: 170,
+                  child: Stack(
+                    alignment: Alignment.bottomCenter,
+                    children: [
+                      // Shadow shrinks as the cup rises.
+                      Container(
+                        width: 70 + 20 * (1 - t),
+                        height: 10,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          color: Colors.black.withAlpha(
+                            (dark ? 90 : 35) + (30 * (1 - t)).round(),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        bottom: 14 + 14 * t,
+                        child: Transform.rotate(
+                          angle: (t - 0.5) * 0.12,
+                          child: CustomPaint(
+                            size: const Size(110, 140),
+                            painter: CupPainter(
+                              fill: 0,
+                              wavePhase: 0,
+                              liquid: green,
+                              outline: green,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Your cart is empty',
+              style: TextStyle(
+                color: onBg,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Your next favourite drink is one tap away.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: sub, fontSize: 13),
+            ),
+            const SizedBox(height: 22),
+            ElevatedButton.icon(
+              onPressed: () => _currentTab.value = 1,
+              icon: const Icon(Icons.local_cafe_rounded, size: 18),
+              label: const Text(
+                'Browse menu',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF00704A),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 26,
+                  vertical: 14,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Checkout ─────────────────────────────────────────────────────────────────
+
+class CheckoutScreen extends StatefulWidget {
+  const CheckoutScreen({super.key});
+
+  @override
+  State<CheckoutScreen> createState() => _CheckoutScreenState();
+}
+
+class _CheckoutScreenState extends State<CheckoutScreen> {
+  static const _steps = ['Review', 'Pickup', 'Payment'];
+  int _step = 0;
+  bool _forward = true;
+  int _storeIndex = 0;
+  int _pickupIndex = 0;
+  int _cardIndex = _activeCard.value;
+
+  void _goTo(int step) => setState(() {
+    _forward = step > _step;
+    _step = step;
+  });
+
+  void _back() {
+    if (_step == 0) {
+      Navigator.of(context).pop();
+    } else {
+      _goTo(_step - 1);
+    }
+  }
+
+  void _pay() {
+    final items = _cart.value;
+    final total = _cartTotal(items);
+    final count = _cartCount(items);
+    final starsEarned = (total * 2).floor();
+    final now = DateTime.now();
+    final order = PlacedOrder(
+      number: 1000 + Random().nextInt(9000),
+      items: List<CartItem>.from(items),
+      total: total,
+      starsEarned: starsEarned,
+      store: _stores[_storeIndex],
+      placedAt: now,
+      readyAt: now.add(Duration(minutes: _pickupTimes[_pickupIndex].$3)),
+    );
+    _recordTxn(
+      _cardIndex,
+      'Order · $count item${count == 1 ? '' : 's'}',
+      -total,
+    );
+    _stars.value += starsEarned;
+    _cart.value = [];
+    _activeOrder.value = order;
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder<void>(
+        pageBuilder: (_, anim, __) => FadeTransition(
+          opacity: anim,
+          child: OrderStatusScreen(order: order, celebrate: true),
+        ),
+        transitionDuration: const Duration(milliseconds: 400),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: Listenable.merge([_isDark, _cart, _balances]),
+    builder: (_, __) {
+      final dark = _isDark.value;
+      final items = _cart.value;
+      final total = _cartTotal(items);
+      final enough = _balances.value[_cardIndex] >= total;
+      return PopScope(
+        canPop: _step == 0,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop) _back();
+        },
+        child: Scaffold(
+          backgroundColor: _sheetBg(),
+          body: SafeArea(
+            child: Column(
+              children: [
+                _buildTopBar(),
+                _StepIndicator(steps: _steps, current: _step, dark: dark),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 350),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, anim) {
+                      final incoming = child.key == ValueKey(_step);
+                      final dx = (_forward == incoming) ? 0.25 : -0.25;
+                      return FadeTransition(
+                        opacity: anim,
+                        child: SlideTransition(
+                          position: Tween<Offset>(
+                            begin: Offset(dx, 0),
+                            end: Offset.zero,
+                          ).animate(anim),
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: KeyedSubtree(
+                      key: ValueKey(_step),
+                      child: switch (_step) {
+                        0 => _buildReview(items, total),
+                        1 => _buildPickup(),
+                        _ => _buildPayment(total, enough),
+                      },
+                    ),
+                  ),
+                ),
+                _buildBottomBar(total, enough && items.isNotEmpty),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+
+  Widget _buildTopBar() => Padding(
+    padding: const EdgeInsets.fromLTRB(8, 8, 20, 4),
+    child: Row(
+      children: [
+        IconButton(
+          onPressed: _back,
+          icon: Icon(Icons.arrow_back_ios_rounded, color: _sheetOn()),
+        ),
+        Expanded(
+          child: Text(
+            'Checkout',
+            style: TextStyle(
+              color: _sheetOn(),
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Text(
+          'Step ${_step + 1} of ${_steps.length}',
+          style: TextStyle(color: _sheetSub(), fontSize: 12),
+        ),
+      ],
+    ),
+  );
+
+  Widget _heading(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Text(
+      text,
+      style: TextStyle(
+        color: _sheetOn(),
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+
+  BoxDecoration _panel({bool active = false, Color? accent}) => BoxDecoration(
+    borderRadius: BorderRadius.circular(18),
+    color: active
+        ? (accent ?? const Color(0xFF00A862)).withAlpha(28)
+        : _sheetSub().withAlpha(14),
+    border: Border.all(
+      color: active
+          ? (accent ?? const Color(0xFF00A862))
+          : _sheetSub().withAlpha(35),
+      width: active ? 1.8 : 1,
+    ),
+  );
+
+  Widget _buildReview(List<CartItem> items, double total) => ListView(
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+    children: [
+      _heading('Your order'),
+      for (var i = 0; i < items.length; i++)
+        TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0, end: 1),
+          duration: Duration(milliseconds: 300 + i * 90),
+          curve: Curves.easeOutCubic,
+          builder: (_, v, child) => Opacity(
+            opacity: v,
+            child: Transform.translate(
+              offset: Offset(0, 16 * (1 - v)),
+              child: child,
+            ),
+          ),
+          child: _reviewRow(items[i]),
+        ),
+      const SizedBox(height: 10),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: _panel(),
+        child: Column(
+          children: [
+            _summaryRow('Items', '${_cartCount(items)}'),
+            const SizedBox(height: 6),
+            _summaryRow('Stars you\'ll earn', '+${(total * 2).floor()} ★'),
+            const SizedBox(height: 10),
+            _summaryRow('Total', _formatPrice(total), bold: true),
+          ],
+        ),
+      ),
+    ],
+  );
+
+  Widget _reviewRow(CartItem item) {
+    final summary = item.options.summary(item.drink);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: _panel(),
+      child: Row(
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              gradient: LinearGradient(colors: item.drink.gradient),
+            ),
+            padding: const EdgeInsets.all(4),
+            child: Image.asset(
+              item.drink.asset,
+              errorBuilder: (_, __, ___) =>
+                  Icon(Icons.local_cafe, color: item.drink.accent),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.drink.name,
+                  style: TextStyle(
+                    color: _sheetOn(),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                Text(
+                  [item.size, if (summary.isNotEmpty) summary].join(' · '),
+                  style: TextStyle(color: _sheetSub(), fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            '${item.quantity} × ${_formatPrice(item.unitPrice)}',
+            style: TextStyle(
+              color: _sheetOn(),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPickup() => ListView(
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+    children: [
+      _heading('Pickup store'),
+      for (var i = 0; i < _stores.length; i++)
+        GestureDetector(
+          onTap: () => setState(() => _storeIndex = i),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: _panel(active: i == _storeIndex),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF00704A).withAlpha(40),
+                  ),
+                  child: const Icon(
+                    Icons.storefront_rounded,
+                    color: Color(0xFF00A862),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _stores[i].name,
+                        style: TextStyle(
+                          color: _sheetOn(),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        '${_stores[i].address} · ${_stores[i].hours}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: _sheetSub(), fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${_stores[i].distanceKm} km',
+                  style: TextStyle(
+                    color: _sheetOn(),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  transitionBuilder: (c, a) =>
+                      ScaleTransition(scale: a, child: c),
+                  child: Icon(
+                    i == _storeIndex
+                        ? Icons.radio_button_checked_rounded
+                        : Icons.radio_button_unchecked_rounded,
+                    key: ValueKey(i == _storeIndex),
+                    color: i == _storeIndex
+                        ? const Color(0xFF00A862)
+                        : _sheetSub(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      const SizedBox(height: 14),
+      _heading('Pickup time'),
+      Row(
+        children: [
+          for (var i = 0; i < _pickupTimes.length; i++)
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _pickupIndex = i),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  margin: EdgeInsets.only(
+                    right: i < _pickupTimes.length - 1 ? 10 : 0,
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: _panel(active: i == _pickupIndex),
+                  child: Column(
+                    children: [
+                      Icon(
+                        i == 0 ? Icons.bolt_rounded : Icons.schedule_rounded,
+                        size: 20,
+                        color: i == _pickupIndex
+                            ? const Color(0xFF00A862)
+                            : _sheetSub(),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _pickupTimes[i].$1,
+                        style: TextStyle(
+                          color: _sheetOn(),
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                      Text(
+                        _pickupTimes[i].$2,
+                        style: TextStyle(color: _sheetSub(), fontSize: 10),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ],
+  );
+
+  Widget _buildPayment(double total, bool enough) {
+    final card = _cards[_cardIndex];
+    final after = _balances.value[_cardIndex] - total;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+      children: [
+        _heading('Pay with'),
+        _cardPicker(
+          selected: _cardIndex,
+          onChanged: (i) => setState(() => _cardIndex = i),
+        ),
+        const SizedBox(height: 18),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: _panel(),
+          child: Column(
+            children: [
+              _summaryRow(
+                'Pickup',
+                '${_stores[_storeIndex].name} · ${_pickupTimes[_pickupIndex].$1}',
+              ),
+              const SizedBox(height: 6),
+              _summaryRow('Balance after', enough ? _formatPrice(after) : '—'),
+              const SizedBox(height: 10),
+              _summaryRow('Total', _formatPrice(total), bold: true),
+            ],
+          ),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 250),
+          child: enough
+              ? const SizedBox(width: double.infinity)
+              : Container(
+                  margin: const EdgeInsets.only(top: 14),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: const Color(0xFFE53935).withAlpha(30),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: Color(0xFFE53935),
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Not enough balance on ${card.name}.',
+                          style: TextStyle(color: _sheetOn(), fontSize: 13),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () =>
+                            _showAddMoneySheet(context, _cardIndex),
+                        child: const Text('Add money'),
+                      ),
+                    ],
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBottomBar(double total, bool canPay) {
+    final last = _step == _steps.length - 1;
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        12,
+        20,
+        12 + MediaQuery.paddingOf(context).bottom,
+      ),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: _sheetSub().withAlpha(30))),
+      ),
+      child: _sheetButton(
+        label: last
+            ? (canPay ? 'Pay ${_formatPrice(total)}' : 'Insufficient balance')
+            : 'Continue',
+        color: const Color(0xFF00704A),
+        onPressed: last ? (canPay ? _pay : null) : () => _goTo(_step + 1),
+      ),
+    );
+  }
+}
+
+class _StepIndicator extends StatelessWidget {
+  final List<String> steps;
+  final int current;
+  final bool dark;
+
+  const _StepIndicator({
+    required this.steps,
+    required this.current,
+    required this.dark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const green = Color(0xFF00A862);
+    final idle = dark ? Colors.white24 : Colors.black12;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+      child: Row(
+        children: [
+          for (var i = 0; i < steps.length; i++) ...[
+            Column(
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  // No overshooting curve: it would push the fading shadow's
+                  // blur below zero.
+                  curve: Curves.easeOutCubic,
+                  width: i == current ? 30 : 24,
+                  height: i == current ? 30 : 24,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: i <= current ? green : idle,
+                    boxShadow: i == current
+                        ? [
+                            BoxShadow(
+                              color: green.withAlpha(90),
+                              blurRadius: 10,
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Center(
+                    child: i < current
+                        ? const Icon(
+                            Icons.check_rounded,
+                            size: 14,
+                            color: Colors.white,
+                          )
+                        : Text(
+                            '${i + 1}',
+                            style: TextStyle(
+                              color: i <= current ? Colors.white : _sheetSub(),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: 64,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      steps[i],
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: i <= current ? _sheetOn() : _sheetSub(),
+                        fontSize: 11,
+                        fontWeight: i == current
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (i < steps.length - 1)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 18),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(2),
+                    // A fixed height: the fill would otherwise size itself
+                    // to the unbounded height it's given.
+                    child: SizedBox(
+                      height: 3,
+                      child: Stack(
+                        children: [
+                          Container(color: idle),
+                          AnimatedFractionallySizedBox(
+                            duration: const Duration(milliseconds: 350),
+                            curve: Curves.easeOutCubic,
+                            alignment: Alignment.centerLeft,
+                            widthFactor: i < current ? 1 : 0,
+                            heightFactor: 1,
+                            child: Container(color: green),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Order Status ─────────────────────────────────────────────────────────────
+
+class OrderStatusScreen extends StatefulWidget {
+  final PlacedOrder order;
+
+  /// Plays the cup-filling celebration first (right after paying).
+  final bool celebrate;
+
+  const OrderStatusScreen({
+    super.key,
+    required this.order,
+    this.celebrate = false,
+  });
+
+  @override
+  State<OrderStatusScreen> createState() => _OrderStatusScreenState();
+}
+
+class _OrderStatusScreenState extends State<OrderStatusScreen>
+    with TickerProviderStateMixin {
+  late final AnimationController _intro = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2600),
+  );
+  late final AnimationController _wave = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  )..repeat();
+
+  late final Animation<double> _fill = CurvedAnimation(
+    parent: _intro,
+    curve: const Interval(0.0, 0.65, curve: Curves.easeInOutCubic),
+  );
+  late final Animation<double> _check = CurvedAnimation(
+    parent: _intro,
+    curve: const Interval(0.55, 0.8, curve: Curves.elasticOut),
+  );
+  late final Animation<double> _details = CurvedAnimation(
+    parent: _intro,
+    curve: const Interval(0.65, 1.0, curve: Curves.easeOutCubic),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.celebrate) {
+      _intro.forward();
+    } else {
+      _intro.value = 1;
+    }
+  }
+
+  @override
+  void dispose() {
+    _intro.dispose();
+    _wave.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final order = widget.order;
+    const coffee = Color(0xFF9C6B3F);
+    const green = Color(0xFF00A862);
+    return Scaffold(
+      backgroundColor: _sheetBg(),
+      body: SafeArea(
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_intro, _wave]),
+          builder: (_, __) => Column(
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: Icon(Icons.close_rounded, color: _sheetOn()),
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: 180,
+                        height: 210,
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Positioned.fill(
+                              child: CustomPaint(
+                                painter: CupPainter(
+                                  fill: 0.82 * _fill.value,
+                                  wavePhase: _wave.value,
+                                  liquid: coffee,
+                                  outline: green,
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              right: 4,
+                              bottom: 10,
+                              child: Transform.scale(
+                                scale: _check.value,
+                                child: Container(
+                                  width: 54,
+                                  height: 54,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: green,
+                                    border: Border.all(
+                                      color: _sheetBg(),
+                                      width: 4,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.check_rounded,
+                                    color: Colors.white,
+                                    size: 30,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Opacity(
+                        opacity: _details.value,
+                        child: Transform.translate(
+                          offset: Offset(0, 30 * (1 - _details.value)),
+                          child: _buildDetails(order),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Opacity(
+                opacity: _details.value,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    20,
+                    8,
+                    20,
+                    12 + MediaQuery.paddingOf(context).bottom,
+                  ),
+                  child: _sheetButton(
+                    label: 'Done',
+                    color: const Color(0xFF00704A),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetails(PlacedOrder order) => Column(
+    children: [
+      Text(
+        widget.celebrate ? 'Order placed!' : 'Order #${order.number}',
+        style: TextStyle(
+          color: _sheetOn(),
+          fontSize: 24,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        widget.celebrate
+            ? 'Order #${order.number} · You earned ${order.starsEarned} ★'
+            : 'Pickup at ${order.store.name}',
+        style: TextStyle(color: _sheetSub(), fontSize: 13),
+      ),
+      const SizedBox(height: 22),
+      OrderTracker(order: order),
+      const SizedBox(height: 16),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: _sheetSub().withAlpha(14),
+          border: Border.all(color: _sheetSub().withAlpha(35)),
+        ),
+        child: Column(
+          children: [
+            for (final item in order.items)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: _summaryRow(
+                  '${item.quantity}× ${item.drink.name} (${item.size})',
+                  _formatPrice(item.totalPrice),
+                ),
+              ),
+            const SizedBox(height: 4),
+            _summaryRow('Paid', _formatPrice(order.total), bold: true),
+          ],
+        ),
+      ),
+      const SizedBox(height: 16),
+    ],
+  );
+}
+
+class OrderTracker extends StatelessWidget {
+  final PlacedOrder order;
+
+  const OrderTracker({super.key, required this.order});
+
+  @override
+  Widget build(BuildContext context) => _Ticker(
+    builder: (_, now) {
+      const green = Color(0xFF00A862);
+      final stage = order.stageAt(now);
+      final progress = order.progressAt(now);
+      final remaining = order.readyAt.difference(now);
+      const labels = ['Received', 'Preparing', 'Ready'];
+      const icons = [
+        Icons.receipt_long_rounded,
+        Icons.coffee_maker_rounded,
+        Icons.shopping_bag_rounded,
+      ];
+      return Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(22),
+          gradient: LinearGradient(
+            colors: [green.withAlpha(40), green.withAlpha(12)],
+          ),
+          border: Border.all(color: green.withAlpha(90)),
+        ),
+        child: Column(
+          children: [
+            Text(
+              stage == 2 ? 'Ready for pickup!' : 'Ready in',
+              style: TextStyle(color: _sheetSub(), fontSize: 13),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              stage == 2 ? order.store.name : _formatCountdown(remaining),
+              key: const ValueKey('order-countdown'),
+              style: TextStyle(
+                color: _sheetOn(),
+                fontSize: stage == 2 ? 22 : 40,
+                fontWeight: FontWeight.w800,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                for (var i = 0; i < 3; i++) ...[
+                  _stageDot(icons[i], labels[i], i, stage),
+                  if (i < 2)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            minHeight: 4,
+                            value: i == 0
+                                ? (stage >= 1 ? 1 : progress / 0.15)
+                                : (stage >= 2
+                                      ? 1
+                                      : ((progress - 0.15) / 0.85).clamp(
+                                          0.0,
+                                          1.0,
+                                        )),
+                            color: green,
+                            backgroundColor: _sheetSub().withAlpha(40),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      );
+    },
+  );
+
+  Widget _stageDot(IconData icon, String label, int index, int stage) {
+    const green = Color(0xFF00A862);
+    final done = index < stage || stage == 2;
+    final current = index == stage && stage != 2;
+    return SizedBox(
+      width: 70,
+      child: Column(
+        children: [
+          _Pulse(
+            active: current,
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: done || current ? green : _sheetSub().withAlpha(40),
+              ),
+              child: Icon(
+                done && !current ? Icons.check_rounded : icon,
+                color: done || current ? Colors.white : _sheetSub(),
+                size: 20,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: done || current ? _sheetOn() : _sheetSub(),
+              fontSize: 11,
+              fontWeight: current ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Gently pulses its child while [active].
+class _Pulse extends StatefulWidget {
+  final bool active;
+  final Widget child;
+
+  const _Pulse({required this.active, required this.child});
+
+  @override
+  State<_Pulse> createState() => _PulseState();
+}
+
+class _PulseState extends State<_Pulse> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(_Pulse old) {
+    super.didUpdateWidget(old);
+    _sync();
+  }
+
+  void _sync() {
+    if (widget.active && !_ctrl.isAnimating) {
+      _ctrl.repeat(reverse: true);
+    } else if (!widget.active && _ctrl.isAnimating) {
+      _ctrl.stop();
+      _ctrl.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ScaleTransition(
+    scale: Tween<double>(
+      begin: 1,
+      end: 1.12,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut)),
+    child: widget.child,
+  );
+}
+
+// ─── Active Order Banner ──────────────────────────────────────────────────────
+
+class ActiveOrderBanner extends StatelessWidget {
+  final PlacedOrder order;
+  final bool dark;
+
+  const ActiveOrderBanner({super.key, required this.order, required this.dark});
+
+  @override
+  Widget build(BuildContext context) => _Ticker(
+    builder: (_, now) {
+      const green = Color(0xFF00A862);
+      final stage = order.stageAt(now);
+      final onBg = dark ? Colors.white : const Color(0xFF15231A);
+      final sub = dark ? Colors.white70 : Colors.black54;
+      return GestureDetector(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => OrderStatusScreen(order: order),
+          ),
+        ),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              colors: [green.withAlpha(60), green.withAlpha(20)],
+            ),
+            border: Border.all(color: green.withAlpha(110)),
+          ),
+          child: Row(
+            children: [
+              _Pulse(
+                active: stage < 2,
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: green,
+                  ),
+                  child: Icon(
+                    stage == 2
+                        ? Icons.shopping_bag_rounded
+                        : Icons.coffee_maker_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Order #${order.number} · ${['Received', 'Preparing', 'Ready'][stage]}',
+                      style: TextStyle(
+                        color: onBg,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    Text(
+                      stage == 2
+                          ? 'Ready at ${order.store.name}'
+                          : 'Ready in ${_formatCountdown(order.readyAt.difference(now))} · ${order.store.name}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: sub, fontSize: 11),
+                    ),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: LinearProgressIndicator(
+                        value: order.progressAt(now),
+                        minHeight: 3,
+                        color: green,
+                        backgroundColor: sub.withAlpha(40),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Dismiss',
+                onPressed: () => _activeOrder.value = null,
+                icon: Icon(Icons.close_rounded, color: sub, size: 18),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }

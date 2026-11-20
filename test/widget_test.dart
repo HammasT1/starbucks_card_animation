@@ -120,11 +120,27 @@ void main() {
 
     await tester.tap(find.text(r'Checkout • $5.95'));
     await _settle(tester);
-    expect(find.text('+11 ★'), findsOneWidget);
 
+    // Step 1: review
+    expect(find.text('Your order'), findsOneWidget);
+    expect(find.text('+11 ★'), findsOneWidget);
+    await tester.tap(find.text('Continue'));
+    await _settle(tester);
+
+    // Step 2: pickup
+    expect(find.text('Pickup store'), findsOneWidget);
+    await tester.tap(find.text('Riverside Mall'));
+    await _settle(tester);
+    await tester.tap(find.text('Continue'));
+    await _settle(tester);
+
+    // Step 3: payment
     await tester.tap(find.text(r'Pay $5.95'));
     await _settle(tester);
+    await _settle(tester);
+    await _settle(tester); // cup-filling intro
     expect(find.text('Order placed!'), findsOneWidget);
+    expect(find.byType(OrderTracker), findsOneWidget);
 
     await tester.tap(find.text('Done'));
     await _settle(tester);
@@ -356,5 +372,63 @@ void main() {
     expect(find.text('Extra espresso shot'), findsOneWidget);
     expect(find.text('Milk'), findsNothing);
     expect(find.text('Sweetness'), findsNothing);
+  });
+
+  testWidgets('Active order shows in the cart and opens the tracker', (
+    tester,
+  ) async {
+    // The checkout test above placed an order.
+    await _pumpApp(tester);
+    await tester.tap(find.text('Cart'));
+    await _settle(tester);
+    expect(find.byType(ActiveOrderBanner), findsOneWidget);
+    expect(find.textContaining('Riverside Mall'), findsOneWidget);
+
+    await tester.tap(find.byType(ActiveOrderBanner));
+    await _settle(tester);
+    expect(find.byType(OrderStatusScreen), findsOneWidget);
+    final countdown = tester
+        .widget<Text>(find.byKey(const ValueKey('order-countdown')))
+        .data!;
+    expect(countdown, matches(RegExp(r'^[45]:\d\d$')));
+  });
+
+  testWidgets('Swipe removes a cart item and Undo restores it', (tester) async {
+    await openMenu(tester);
+    await tester.tap(find.byIcon(Icons.add_shopping_cart_rounded).first);
+    await _settle(tester);
+    await tester.tap(find.text('Cart'));
+    await _settle(tester);
+
+    // Count cart rows by their Remove button; the snackbar is a Dismissible
+    // too, so counting Dismissibles would include it.
+    int rows() => find.byTooltip('Remove').evaluate().length;
+    final before = rows();
+    expect(before, greaterThan(0));
+
+    await tester.drag(find.byType(Dismissible).first, const Offset(-600, 0));
+    await _settle(tester);
+    expect(rows(), before - 1);
+    expect(find.textContaining('removed'), findsOneWidget);
+
+    await tester.tap(find.text('Undo'));
+    await _settle(tester);
+    expect(rows(), before);
+  });
+
+  testWidgets('Empty cart offers a way back to the menu', (tester) async {
+    await _pumpApp(tester);
+    await tester.tap(find.text('Cart'));
+    await _settle(tester);
+    // Earlier tests may have left items in the shared cart.
+    while (find.byTooltip('Remove').evaluate().isNotEmpty) {
+      await tester.tap(find.byTooltip('Remove').first);
+      await _settle(tester);
+    }
+    expect(find.text('Your cart is empty'), findsOneWidget);
+
+    await tester.tap(find.text('Browse menu'));
+    await _settle(tester);
+    expect(find.text('Our Menu'), findsOneWidget);
   });
 }
