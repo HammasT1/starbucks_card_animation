@@ -130,4 +130,55 @@ void main() {
     await _settle(tester);
     expect(find.text('Your cart is empty'), findsOneWidget);
   });
+
+  testWidgets('Rewards ring, recent activity and picks are shown', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    await _settle(tester); // let the rewards ring finish counting up
+
+    expect(find.textContaining('until your next free drink'), findsOneWidget);
+    expect(find.text('Recent activity'), findsOneWidget);
+    expect(find.text('Picked for you'), findsOneWidget);
+    expect(find.byType(RewardsCard), findsOneWidget);
+    expect(find.byType(RecentActivity), findsOneWidget);
+  });
+
+  testWidgets('Tapping the card flips it to the QR side and back', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    expect(find.byType(CardBack), findsNothing);
+
+    await tester.tap(find.text('STARBUCKS').first);
+    await _settle(tester);
+    expect(find.byType(CardBack), findsOneWidget);
+    expect(find.text('Scan to pay'), findsOneWidget);
+
+    await tester.tap(find.text('Scan to pay'));
+    await _settle(tester);
+    expect(find.byType(CardBack), findsNothing);
+  });
+
+  testWidgets('Pay sheet counts down to the next code refresh', (tester) async {
+    await _pumpApp(tester);
+    await tester.tap(find.text('Pay'));
+    await _settle(tester);
+    int secondsLeft() {
+      final text = tester
+          .widget<Text>(find.textContaining('Code refreshes in'))
+          .data!;
+      final parts = text.split(' ').last.split(':');
+      return int.parse(parts[0]) * 60 + int.parse(parts[1]);
+    }
+
+    final before = secondsLeft();
+    expect(before, inInclusiveRange(55, 60));
+
+    await tester.pump(const Duration(seconds: 5));
+    expect(secondsLeft(), before - 5);
+
+    Navigator.of(tester.element(find.text('Scan to Pay'))).pop();
+    await _settle(tester);
+  });
 }

@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 
 void main() => runApp(const MyApp());
 
@@ -318,92 +320,13 @@ Future<void> _showAddMoneySheet(BuildContext context, int cardIndex) {
   );
 }
 
-Future<void> _showPaySheet(BuildContext context, int cardIndex) {
-  final card = _cards[cardIndex];
-  return _showAppSheet(
-    context,
-    title: 'Scan to Pay',
-    subtitle: 'Show this code to the barista at the register',
-    builder: (_) => Column(
-      children: [
-        Center(
-          child: Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: card.gradient[0].withAlpha(90),
-                  blurRadius: 30,
-                  offset: const Offset(0, 12),
-                ),
-              ],
-            ),
-            child: QrImageView(
-              data: 'SBUX-CARD|${card.tier}|${card.number}',
-              version: QrVersions.auto,
-              size: 200,
-              backgroundColor: Colors.white,
-              eyeStyle: QrEyeStyle(
-                eyeShape: QrEyeShape.circle,
-                color: card.gradient[1],
-              ),
-              dataModuleStyle: QrDataModuleStyle(
-                dataModuleShape: QrDataModuleShape.circle,
-                color: card.gradient[1],
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            gradient: LinearGradient(colors: card.gradient),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.credit_card_rounded, color: Colors.white),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      card.name,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Text(
-                      card.number,
-                      style: TextStyle(
-                        color: Colors.white.withAlpha(170),
-                        fontSize: 11,
-                        letterSpacing: 1.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                _formatPrice(_balances.value[cardIndex]),
-                style: TextStyle(
-                  color: card.accent,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
+Future<void> _showPaySheet(BuildContext context, int cardIndex) =>
+    _showAppSheet(
+      context,
+      title: 'Scan to Pay',
+      subtitle: 'Show this code to the barista at the register',
+      builder: (_) => PaySheetBody(cardIndex: cardIndex),
+    );
 
 Future<void> _showHistorySheet(BuildContext context, int cardIndex) {
   final card = _cards[cardIndex];
@@ -1173,7 +1096,8 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
       _particleCtrl,
       _bgCtrl,
       _entryCtrl,
-      _shimmerCtrl;
+      _shimmerCtrl,
+      _flipCtrl;
   late Animation<double> _logoAngle, _bobOffset, _glowAlpha, _entry, _shimmer;
   late Animation<Color?> _bg1, _bg2;
 
@@ -1240,11 +1164,33 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
       begin: -1.5,
       end: 2.5,
     ).animate(CurvedAnimation(parent: _shimmerCtrl, curve: Curves.easeInOut));
+
+    _flipCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 650),
+    );
+  }
+
+  void _toggleFlip(int idx) {
+    if (idx != _current) {
+      _pageCtrl.animateToPage(
+        idx,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+    if (_flipCtrl.value > 0.5) {
+      _flipCtrl.reverse();
+    } else {
+      _flipCtrl.forward();
+    }
   }
 
   void _onPageChanged(int idx) {
     final prev = _current;
     _activeCard.value = idx;
+    _flipCtrl.value = 0;
     setState(() => _current = idx);
     _bg1 = ColorTween(
       begin: _cards[prev].gradient[0],
@@ -1269,6 +1215,7 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
       _bgCtrl,
       _entryCtrl,
       _shimmerCtrl,
+      _flipCtrl,
     ]) {
       c.dispose();
     }
@@ -1290,6 +1237,8 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
           _isDark,
           _balances,
           _stars,
+          _transactions,
+          _flipCtrl,
         ]),
         builder: (ctx, _) {
           final dark = _isDark.value;
@@ -1356,7 +1305,30 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
                       ),
                       const SizedBox(height: 10),
                       _buildDots(),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 6),
+                      AnimatedOpacity(
+                        duration: const Duration(milliseconds: 250),
+                        opacity: _flipCtrl.value > 0.5 ? 0 : 1,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.touch_app_rounded,
+                              size: 13,
+                              color: dark ? Colors.white54 : Colors.black45,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Tap card to show your pay code',
+                              style: TextStyle(
+                                color: dark ? Colors.white54 : Colors.black45,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       Expanded(
                         child: SingleChildScrollView(
                           padding: const EdgeInsets.only(bottom: 6),
@@ -1365,7 +1337,25 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
                               _buildStats(c),
                               const SizedBox(height: 12),
                               _buildActions(c),
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 16),
+                              RewardsCard(
+                                stars: _stars.value,
+                                accent: c.accent,
+                                dark: dark,
+                              ),
+                              const SizedBox(height: 18),
+                              _sectionHeader(
+                                'Recent activity',
+                                dark: dark,
+                                action: 'See all',
+                                onAction: () =>
+                                    _showHistorySheet(context, _current),
+                              ),
+                              RecentActivity(cardIndex: _current, dark: dark),
+                              const SizedBox(height: 18),
+                              _sectionHeader('Picked for you', dark: dark),
+                              PickedForYou(dark: dark),
+                              const SizedBox(height: 16),
                             ],
                           ),
                         ),
@@ -1509,263 +1499,284 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
     final scale = (1.0 - delta.abs() * 0.07).clamp(0.84, 1.0);
     final cupTilt = sin(_logoAngle.value + idx * 0.7) * 0.08;
     final cupScale = 0.96 + _glowAlpha.value * 0.08;
+    final flipAngle = idx == _current
+        ? Curves.easeInOutCubic.transform(_flipCtrl.value) * pi
+        : 0.0;
+    final showBack = flipAngle > pi / 2;
     final matrix = Matrix4.identity()
       ..setEntry(3, 2, 0.001)
-      ..rotateY(tilt);
+      ..rotateY(tilt + flipAngle);
     matrix.multiply(Matrix4.diagonal3Values(scale, scale, 1.0));
     return Transform(
       transform: matrix,
       alignment: Alignment.center,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(28),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: card.gradient,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: card.gradient[0].withAlpha(160),
-                blurRadius: 36,
-                spreadRadius: 6,
-                offset: const Offset(0, 18),
-              ),
-              BoxShadow(
-                color: Colors.black.withAlpha(80),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: Stack(
-              children: [
-                Positioned(
-                  right: -50,
-                  top: -50,
-                  child: Container(
-                    width: 200,
-                    height: 200,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withAlpha(12),
+      child: GestureDetector(
+        onTap: () => _toggleFlip(idx),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: showBack
+              ? Transform(
+                  alignment: Alignment.center,
+                  transform: Matrix4.rotationY(pi),
+                  child: CardBack(card: card),
+                )
+              : Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(28),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: card.gradient,
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: card.gradient[0].withAlpha(160),
+                        blurRadius: 36,
+                        spreadRadius: 6,
+                        offset: const Offset(0, 18),
+                      ),
+                      BoxShadow(
+                        color: Colors.black.withAlpha(80),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
                   ),
-                ),
-                Positioned(
-                  left: -40,
-                  bottom: -60,
-                  child: Container(
-                    width: 160,
-                    height: 160,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withAlpha(8),
-                    ),
-                  ),
-                ),
-                AnimatedBuilder(
-                  animation: _shimmer,
-                  builder: (_, __) => Positioned.fill(
-                    child: ShaderMask(
-                      blendMode: BlendMode.srcATop,
-                      shaderCallback: (rect) => LinearGradient(
-                        begin: Alignment(_shimmer.value - 0.6, -0.5),
-                        end: Alignment(_shimmer.value + 0.6, 0.5),
-                        colors: [
-                          Colors.transparent,
-                          Colors.white.withAlpha(30),
-                          Colors.transparent,
-                        ],
-                      ).createShader(rect),
-                      child: Container(color: Colors.transparent),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(28),
+                    child: Stack(
+                      children: [
+                        Positioned(
+                          right: -50,
+                          top: -50,
+                          child: Container(
+                            width: 200,
+                            height: 200,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withAlpha(12),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: -40,
+                          bottom: -60,
+                          child: Container(
+                            width: 160,
+                            height: 160,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withAlpha(8),
+                            ),
+                          ),
+                        ),
+                        AnimatedBuilder(
+                          animation: _shimmer,
+                          builder: (_, __) => Positioned.fill(
+                            child: ShaderMask(
+                              blendMode: BlendMode.srcATop,
+                              shaderCallback: (rect) => LinearGradient(
+                                begin: Alignment(_shimmer.value - 0.6, -0.5),
+                                end: Alignment(_shimmer.value + 0.6, 0.5),
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.white.withAlpha(30),
+                                  Colors.transparent,
+                                ],
+                              ).createShader(rect),
+                              child: Container(color: Colors.transparent),
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.all(20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Container(
-                                width: 32,
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.white.withAlpha(40),
-                                ),
-                                child: ClipOval(
-                                  child: Image.asset(
-                                    'images/logo.png',
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (_, __, ___) => const Icon(
-                                      Icons.local_cafe,
-                                      color: Colors.white,
-                                      size: 18,
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 32,
+                                        height: 32,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: Colors.white.withAlpha(40),
+                                        ),
+                                        child: ClipOval(
+                                          child: Image.asset(
+                                            'images/logo.png',
+                                            fit: BoxFit.contain,
+                                            errorBuilder: (_, __, ___) =>
+                                                const Icon(
+                                                  Icons.local_cafe,
+                                                  color: Colors.white,
+                                                  size: 18,
+                                                ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'STARBUCKS',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: 3,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  _tierBadge(card),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Expanded(
+                                child: Center(
+                                  child: AnimatedBuilder(
+                                    animation: _bobOffset,
+                                    builder: (_, __) => Transform.translate(
+                                      offset: Offset(0, _bobOffset.value),
+                                      child: AnimatedBuilder(
+                                        animation: _glowAlpha,
+                                        builder: (_, __) => Stack(
+                                          clipBehavior: Clip.none,
+                                          alignment: Alignment.center,
+                                          children: [
+                                            ...List.generate(3, (orbitIndex) {
+                                              final angle =
+                                                  _logoAngle.value +
+                                                  orbitIndex * 2.1;
+                                              return Positioned(
+                                                left: cos(angle) * 34,
+                                                top: sin(angle) * 18,
+                                                child: Container(
+                                                  width: 10 + orbitIndex * 3,
+                                                  height: 10 + orbitIndex * 3,
+                                                  decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    color: card.accent
+                                                        .withAlpha(
+                                                          90 - orbitIndex * 18,
+                                                        ),
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: card.accent
+                                                            .withAlpha(90),
+                                                        blurRadius: 12,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              );
+                                            }),
+                                            Transform.rotate(
+                                              angle: cupTilt,
+                                              child: Transform.scale(
+                                                scale: cupScale,
+                                                child: Container(
+                                                  decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: card.accent
+                                                            .withAlpha(
+                                                              (_glowAlpha.value *
+                                                                      140)
+                                                                  .toInt(),
+                                                            ),
+                                                        blurRadius: 40,
+                                                        spreadRadius: 8,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  child: Image.asset(
+                                                    card.asset,
+                                                    height: 92,
+                                                    fit: BoxFit.contain,
+                                                    errorBuilder:
+                                                        (_, __, ___) => Icon(
+                                                          Icons.local_cafe,
+                                                          color: Colors.white
+                                                              .withAlpha(180),
+                                                          size: 56,
+                                                        ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'STARBUCKS',
+                              const SizedBox(height: 8),
+                              Text(
+                                card.number,
                                 style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 3,
+                                  color: Colors.white.withAlpha(160),
+                                  fontSize: 12,
+                                  letterSpacing: 2.2,
+                                  fontWeight: FontWeight.w500,
                                 ),
                               ),
-                            ],
-                          ),
-                          _tierBadge(card),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Expanded(
-                        child: Center(
-                          child: AnimatedBuilder(
-                            animation: _bobOffset,
-                            builder: (_, __) => Transform.translate(
-                              offset: Offset(0, _bobOffset.value),
-                              child: AnimatedBuilder(
-                                animation: _glowAlpha,
-                                builder: (_, __) => Stack(
-                                  clipBehavior: Clip.none,
-                                  alignment: Alignment.center,
-                                  children: [
-                                    ...List.generate(3, (orbitIndex) {
-                                      final angle =
-                                          _logoAngle.value + orbitIndex * 2.1;
-                                      return Positioned(
-                                        left: cos(angle) * 34,
-                                        top: sin(angle) * 18,
-                                        child: Container(
-                                          width: 10 + orbitIndex * 3,
-                                          height: 10 + orbitIndex * 3,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: card.accent.withAlpha(
-                                              90 - orbitIndex * 18,
-                                            ),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: card.accent.withAlpha(
-                                                  90,
-                                                ),
-                                                blurRadius: 12,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    }),
-                                    Transform.rotate(
-                                      angle: cupTilt,
-                                      child: Transform.scale(
-                                        scale: cupScale,
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: card.accent.withAlpha(
-                                                  (_glowAlpha.value * 140)
-                                                      .toInt(),
-                                                ),
-                                                blurRadius: 40,
-                                                spreadRadius: 8,
-                                              ),
-                                            ],
-                                          ),
-                                          child: Image.asset(
-                                            card.asset,
-                                            height: 92,
-                                            fit: BoxFit.contain,
-                                            errorBuilder: (_, __, ___) => Icon(
-                                              Icons.local_cafe,
-                                              color: Colors.white.withAlpha(
-                                                180,
-                                              ),
-                                              size: 56,
-                                            ),
-                                          ),
+                              const SizedBox(height: 10),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'BALANCE',
+                                        style: TextStyle(
+                                          color: Colors.white.withAlpha(120),
+                                          fontSize: 9,
+                                          letterSpacing: 2,
                                         ),
                                       ),
+                                      const SizedBox(height: 2),
+                                      CountUpText(
+                                        value: _balances.value[idx],
+                                        format: _formatPrice,
+                                        style: TextStyle(
+                                          color: card.accent,
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Row(
+                                    children: List.generate(
+                                      5,
+                                      (i) => Icon(
+                                        Icons.star,
+                                        size: 15,
+                                        color: i < 3
+                                            ? card.accent
+                                            : Colors.white.withAlpha(50),
+                                      ),
                                     ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        card.number,
-                        style: TextStyle(
-                          color: Colors.white.withAlpha(160),
-                          fontSize: 12,
-                          letterSpacing: 2.2,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'BALANCE',
-                                style: TextStyle(
-                                  color: Colors.white.withAlpha(120),
-                                  fontSize: 9,
-                                  letterSpacing: 2,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _formatPrice(_balances.value[idx]),
-                                style: TextStyle(
-                                  color: card.accent,
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                          Row(
-                            children: List.generate(
-                              5,
-                              (i) => Icon(
-                                Icons.star,
-                                size: 15,
-                                color: i < 3
-                                    ? card.accent
-                                    : Colors.white.withAlpha(50),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ],
-            ),
-          ),
         ),
       ),
     );
@@ -1840,18 +1851,28 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            _stat('Balance', _formatPrice(_balances.value[_current]), c.accent),
+            _stat('Balance', _balances.value[_current], _formatPrice, c.accent),
             _divider(),
-            _stat('Stars', '${_stars.value} ★', Colors.yellowAccent),
+            _stat(
+              'Stars',
+              _stars.value.toDouble(),
+              (v) => '${v.round()} ★',
+              Colors.yellowAccent,
+            ),
             _divider(),
-            _stat('Tier', c.tier, c.accent),
+            _stat('Tier', 0, (_) => c.tier, c.accent),
           ],
         ),
       ),
     );
   }
 
-  Widget _stat(String label, String value, Color color) {
+  Widget _stat(
+    String label,
+    double value,
+    String Function(double) format,
+    Color color,
+  ) {
     final dark = _isDark.value;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1867,8 +1888,9 @@ class _StarbucksCardScreenState extends State<StarbucksCardScreen>
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          value,
+        CountUpText(
+          value: value,
+          format: format,
           style: TextStyle(
             color: color,
             fontSize: 15,
@@ -2758,8 +2780,9 @@ class _QtyButton extends StatelessWidget {
 
 class DrinkDetailScreen extends StatefulWidget {
   final DrinkData drink;
+  final String? heroTag;
 
-  const DrinkDetailScreen({super.key, required this.drink});
+  const DrinkDetailScreen({super.key, required this.drink, this.heroTag});
 
   @override
   State<DrinkDetailScreen> createState() => _DrinkDetailScreenState();
@@ -2867,7 +2890,7 @@ class _DrinkDetailScreenState extends State<DrinkDetailScreen>
                         child: Transform.rotate(
                           angle: sin(_ctrl.value * pi * 2) * 0.06,
                           child: Hero(
-                            tag: 'drink-${d.name}',
+                            tag: widget.heroTag ?? 'drink-${d.name}',
                             child: Image.asset(
                               d.asset,
                               height: 180,
@@ -3185,4 +3208,772 @@ class _DrinkDetailScreenState extends State<DrinkDetailScreen>
       ],
     ),
   );
+}
+
+// ─── Count-up Text ────────────────────────────────────────────────────────────
+
+/// Animates from the previous value to the new one whenever [value] changes.
+class CountUpText extends StatelessWidget {
+  final double value;
+  final String Function(double) format;
+  final TextStyle style;
+
+  const CountUpText({
+    super.key,
+    required this.value,
+    required this.format,
+    required this.style,
+  });
+
+  @override
+  Widget build(BuildContext context) => TweenAnimationBuilder<double>(
+    tween: Tween<double>(begin: value, end: value),
+    duration: const Duration(milliseconds: 900),
+    curve: Curves.easeOutCubic,
+    builder: (_, v, __) => Text(format(v), style: style),
+  );
+}
+
+// ─── Rewards Ring ─────────────────────────────────────────────────────────────
+
+const int _starsPerReward = 400;
+
+class _RingPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  final Color track;
+
+  _RingPainter({
+    required this.progress,
+    required this.color,
+    required this.track,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const stroke = 9.0;
+    final rect = Offset.zero & size;
+    final arcRect = rect.deflate(stroke / 2);
+    canvas.drawArc(
+      arcRect,
+      0,
+      2 * pi,
+      false,
+      Paint()
+        ..color = track
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke,
+    );
+    if (progress <= 0) return;
+    canvas.drawArc(
+      arcRect,
+      -pi / 2,
+      2 * pi * progress,
+      false,
+      Paint()
+        ..shader = SweepGradient(
+          startAngle: -pi / 2,
+          endAngle: 3 * pi / 2,
+          colors: [color.withAlpha(140), color],
+          transform: const GradientRotation(-pi / 2),
+        ).createShader(rect)
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = stroke,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RingPainter old) =>
+      old.progress != progress || old.color != color || old.track != track;
+}
+
+class RewardsCard extends StatelessWidget {
+  final int stars;
+  final Color accent;
+  final bool dark;
+
+  const RewardsCard({
+    super.key,
+    required this.stars,
+    required this.accent,
+    required this.dark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final onBg = dark ? Colors.white : const Color(0xFF1B1B1B);
+    final sub = dark ? Colors.white.withAlpha(150) : Colors.black54;
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: stars.toDouble()),
+      duration: const Duration(milliseconds: 1400),
+      curve: Curves.easeOutCubic,
+      builder: (_, v, __) {
+        final progress = (v % _starsPerReward) / _starsPerReward;
+        final toGo = _starsPerReward - (v.round() % _starsPerReward);
+        final ready = v.round() ~/ _starsPerReward;
+        return Container(
+          margin: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.all(16),
+          decoration: _glassBox(dark),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 82,
+                height: 82,
+                child: CustomPaint(
+                  painter: _RingPainter(
+                    progress: progress,
+                    color: accent,
+                    track: dark
+                        ? Colors.white.withAlpha(30)
+                        : Colors.black.withAlpha(20),
+                  ),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${v.round()}',
+                          style: TextStyle(
+                            color: onBg,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            height: 1.1,
+                          ),
+                        ),
+                        Text(
+                          '★',
+                          style: TextStyle(color: accent, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Rewards',
+                      style: TextStyle(
+                        color: onBg,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$toGo★ until your next free drink',
+                      style: TextStyle(color: sub, fontSize: 12),
+                    ),
+                    const SizedBox(height: 10),
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      transitionBuilder: (child, anim) =>
+                          ScaleTransition(scale: anim, child: child),
+                      child: ready > 0
+                          ? Container(
+                              key: const ValueKey('ready'),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(20),
+                                color: accent.withAlpha(45),
+                                border: Border.all(
+                                  color: accent.withAlpha(120),
+                                ),
+                              ),
+                              child: Text(
+                                '🎁 $ready free drink${ready == 1 ? '' : 's'} ready',
+                                style: TextStyle(
+                                  color: onBg,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            )
+                          : Text(
+                              key: const ValueKey('earn'),
+                              'Earn 2★ for every \$1 spent',
+                              style: TextStyle(
+                                color: accent,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+BoxDecoration _glassBox(bool dark) => BoxDecoration(
+  borderRadius: BorderRadius.circular(22),
+  color: dark ? Colors.white.withAlpha(18) : Colors.black.withAlpha(8),
+  border: Border.all(
+    color: dark ? Colors.white.withAlpha(35) : Colors.black.withAlpha(20),
+  ),
+);
+
+// ─── Section Header ───────────────────────────────────────────────────────────
+
+Widget _sectionHeader(
+  String title, {
+  required bool dark,
+  String? action,
+  VoidCallback? onAction,
+}) => Padding(
+  padding: const EdgeInsets.fromLTRB(24, 0, 16, 6),
+  child: Row(
+    children: [
+      Expanded(
+        child: Text(
+          title,
+          style: TextStyle(
+            color: dark ? Colors.white : const Color(0xFF1B1B1B),
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      if (action != null)
+        TextButton(
+          onPressed: onAction,
+          style: TextButton.styleFrom(
+            foregroundColor: dark ? Colors.white70 : Colors.black54,
+          ),
+          child: Text(action, style: const TextStyle(fontSize: 12)),
+        ),
+    ],
+  ),
+);
+
+// ─── Recent Activity ──────────────────────────────────────────────────────────
+
+class RecentActivity extends StatelessWidget {
+  final int cardIndex;
+  final bool dark;
+
+  const RecentActivity({
+    super.key,
+    required this.cardIndex,
+    required this.dark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final card = _cards[cardIndex];
+    final txns = _transactions.value
+        .where((t) => t.cardIndex == cardIndex)
+        .take(3)
+        .toList();
+    final onBg = dark ? Colors.white : const Color(0xFF1B1B1B);
+    final sub = dark ? Colors.white.withAlpha(140) : Colors.black54;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      decoration: _glassBox(dark),
+      child: txns.isEmpty
+          ? Padding(
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              child: Center(
+                child: Text('No activity yet', style: TextStyle(color: sub)),
+              ),
+            )
+          : Column(
+              children: [
+                for (var i = 0; i < txns.length; i++)
+                  TweenAnimationBuilder<double>(
+                    key: ValueKey(
+                      '$cardIndex-${txns[i].time.microsecondsSinceEpoch}',
+                    ),
+                    tween: Tween<double>(begin: 0, end: 1),
+                    duration: Duration(milliseconds: 350 + i * 120),
+                    curve: Curves.easeOutCubic,
+                    builder: (_, v, child) => Opacity(
+                      opacity: v,
+                      child: Transform.translate(
+                        offset: Offset(24 * (1 - v), 0),
+                        child: child,
+                      ),
+                    ),
+                    child: _activityRow(
+                      txns[i],
+                      card,
+                      onBg,
+                      sub,
+                      last: i == txns.length - 1,
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
+
+  Widget _activityRow(
+    WalletTxn t,
+    CardData card,
+    Color onBg,
+    Color sub, {
+    required bool last,
+  }) {
+    final topUp = t.amount > 0;
+    const green = Color(0xFF43A047);
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      decoration: BoxDecoration(
+        border: last
+            ? null
+            : Border(bottom: BorderSide(color: sub.withAlpha(40))),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: (topUp ? green : card.accent).withAlpha(40),
+            ),
+            child: Icon(
+              topUp ? Icons.add_card_rounded : Icons.local_cafe_rounded,
+              size: 16,
+              color: topUp ? green : card.accent,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  t.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: onBg,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  _formatTxnTime(t.time),
+                  style: TextStyle(color: sub, fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+          Text(
+            '${topUp ? '+' : '−'}${_formatPrice(t.amount.abs())}',
+            style: TextStyle(
+              color: topUp ? green : onBg,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Picked For You ───────────────────────────────────────────────────────────
+
+class PickedForYou extends StatelessWidget {
+  final bool dark;
+
+  const PickedForYou({super.key, required this.dark});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 150,
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      itemCount: _drinks.length,
+      separatorBuilder: (_, __) => const SizedBox(width: 12),
+      itemBuilder: (ctx, i) {
+        final d = _drinks[i];
+        final heroTag = 'pick-${d.name}';
+        return TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: 0, end: 1),
+          duration: Duration(milliseconds: 400 + i * 90),
+          curve: Curves.easeOutBack,
+          builder: (_, v, child) =>
+              Transform.scale(scale: 0.8 + 0.2 * v, child: child),
+          child: GestureDetector(
+            onTap: () => Navigator.of(ctx).push(
+              PageRouteBuilder(
+                pageBuilder: (_, anim, __) => FadeTransition(
+                  opacity: anim,
+                  child: DrinkDetailScreen(drink: d, heroTag: heroTag),
+                ),
+                transitionDuration: const Duration(milliseconds: 350),
+              ),
+            ),
+            child: Container(
+              width: 112,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: d.gradient,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: d.gradient[0].withAlpha(dark ? 110 : 70),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: Hero(
+                        tag: heroTag,
+                        child: Image.asset(
+                          d.asset,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) =>
+                              Icon(Icons.local_cafe, color: d.accent),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    d.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    d.price,
+                    style: TextStyle(
+                      color: d.accent,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+// ─── Card Back (QR) ───────────────────────────────────────────────────────────
+
+String _cardQrData(CardData card, [int refresh = 0]) =>
+    'SBUX-CARD|${card.tier}|${card.number}|$refresh';
+
+Widget _styledQr(CardData card, double size, [int refresh = 0]) => QrImageView(
+  data: _cardQrData(card, refresh),
+  version: QrVersions.auto,
+  size: size,
+  padding: EdgeInsets.zero,
+  backgroundColor: Colors.white,
+  eyeStyle: QrEyeStyle(eyeShape: QrEyeShape.circle, color: card.gradient[1]),
+  dataModuleStyle: QrDataModuleStyle(
+    dataModuleShape: QrDataModuleShape.circle,
+    color: card.gradient[1],
+  ),
+);
+
+class CardBack extends StatelessWidget {
+  final CardData card;
+
+  const CardBack({super.key, required this.card});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(28),
+      gradient: LinearGradient(
+        begin: Alignment.topRight,
+        end: Alignment.bottomLeft,
+        colors: card.gradient,
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: card.gradient[0].withAlpha(160),
+          blurRadius: 36,
+          spreadRadius: 6,
+          offset: const Offset(0, 18),
+        ),
+      ],
+    ),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(28),
+      child: Column(
+        children: [
+          const SizedBox(height: 22),
+          // Magnetic stripe
+          Container(height: 34, color: Colors.black.withAlpha(150)),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+              child: LayoutBuilder(
+                builder: (_, box) {
+                  final qr = min(box.maxHeight - 16, 130.0).clamp(60.0, 130.0);
+                  return Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: _styledQr(card, qr),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text(
+                              'Scan to pay',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                card.number,
+                                style: TextStyle(
+                                  color: Colors.white.withAlpha(180),
+                                  fontSize: 11,
+                                  letterSpacing: 1.5,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.touch_app_rounded,
+                                  size: 14,
+                                  color: card.accent,
+                                ),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    'Tap to flip back',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: card.accent,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+// ─── Pay Sheet ────────────────────────────────────────────────────────────────
+
+const int _payCodeSeconds = 60;
+
+class PaySheetBody extends StatefulWidget {
+  final int cardIndex;
+
+  const PaySheetBody({super.key, required this.cardIndex});
+
+  @override
+  State<PaySheetBody> createState() => _PaySheetBodyState();
+}
+
+class _PaySheetBodyState extends State<PaySheetBody> {
+  Timer? _timer;
+  int _secondsLeft = _payCodeSeconds;
+  int _refresh = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _setBrightness(boost: true);
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      setState(() {
+        _secondsLeft -= 1;
+        if (_secondsLeft <= 0) {
+          _secondsLeft = _payCodeSeconds;
+          _refresh += 1;
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _setBrightness(boost: false);
+    super.dispose();
+  }
+
+  /// Not every platform supports brightness control (e.g. Linux, web).
+  Future<void> _setBrightness({required bool boost}) async {
+    try {
+      if (boost) {
+        await ScreenBrightness.instance.setApplicationScreenBrightness(1.0);
+      } else {
+        await ScreenBrightness.instance.resetApplicationScreenBrightness();
+      }
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final card = _cards[widget.cardIndex];
+    final mm = _secondsLeft ~/ 60;
+    final ss = (_secondsLeft % 60).toString().padLeft(2, '0');
+    return Column(
+      children: [
+        Center(
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: card.gradient[0].withAlpha(90),
+                  blurRadius: 30,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 400),
+              transitionBuilder: (child, anim) => FadeTransition(
+                opacity: anim,
+                child: ScaleTransition(scale: anim, child: child),
+              ),
+              child: KeyedSubtree(
+                key: ValueKey(_refresh),
+                child: _styledQr(card, 200, _refresh),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Icon(Icons.wb_sunny_rounded, size: 14, color: _sheetSub()),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Code refreshes in $mm:$ss',
+                style: TextStyle(color: _sheetSub(), fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: _secondsLeft / _payCodeSeconds),
+            duration: const Duration(milliseconds: 950),
+            builder: (_, v, __) => LinearProgressIndicator(
+              value: v,
+              minHeight: 6,
+              color: card.gradient[0],
+              backgroundColor: _sheetSub().withAlpha(30),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(colors: card.gradient),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.credit_card_rounded, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      card.name,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      card.number,
+                      style: TextStyle(
+                        color: Colors.white.withAlpha(170),
+                        fontSize: 11,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                _formatPrice(_balances.value[widget.cardIndex]),
+                style: TextStyle(
+                  color: card.accent,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
